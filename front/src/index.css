@@ -1,1 +1,131 @@
 @import "tailwindcss";
+
+@font-face {
+  font-family: "Caladea";
+  src: url("/fonts/Caladea-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Caladea";
+  src: url("/fonts/Caladea-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Caladea";
+  src: url("/fonts/Caladea-Italic.ttf") format("truetype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Caladea";
+  src: url("/fonts/Caladea-BoldItalic.ttf") format("truetype");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --font-sans: "Caladea", "Cambria", Georgia, serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 1rem);
+  --radius-md: calc(var(--radius) - 0.75rem);
+  --radius-lg: calc(var(--radius) - 0.5rem);
+  --radius-xl: calc(var(--radius) - 0.25rem);
+  --radius-2xl: var(--radius);
+  --radius-3xl: calc(var(--radius) + 0.5rem);
+}
+
+:root {
+  --background: #e0fbfc;
+  --foreground: #181d26;
+  --card: #f4fdfe;
+  --card-foreground: #181d26;
+  --popover: #d3eff3;
+  --popover-foreground: #181d26;
+  --primary: #3d5a80;
+  --primary-foreground: #e0fbfc;
+  --secondary: #98c1d9;
+  --secondary-foreground: #181d26;
+  --muted: #cdedf1;
+  --muted-foreground: #3d5a80;
+  --accent: #ee6c4d;
+  --accent-foreground: #e0fbfc;
+  --ring: #3d5a80;
+  --radius: 1.5rem;
+  color-scheme: light;
+}
+
+.dark {
+  --background: #181d26;
+  --foreground: #e0fbfc;
+  --card: #212833;
+  --card-foreground: #e0fbfc;
+  --popover: #2e3846;
+  --popover-foreground: #e0fbfc;
+  --primary: #98c1d9;
+  --primary-foreground: #181d26;
+  --secondary: #3d5a80;
+  --secondary-foreground: #e0fbfc;
+  --muted: #2a323f;
+  --muted-foreground: #98c1d9;
+  --accent: #ee6c4d;
+  --accent-foreground: #e0fbfc;
+  --ring: #98c1d9;
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    border-width: 0;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  ::selection {
+    background: var(--accent);
+    color: var(--accent-foreground);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--secondary) 55%, transparent) transparent;
+  }
+}

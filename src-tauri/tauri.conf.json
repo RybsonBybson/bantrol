@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "bantrol",
+  "productName": "Bantrol",
   "version": "0.1.0",
-  "identifier": "com.user.bantrol",
+  "identifier": "app.bantrol.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,9 +12,13 @@
   "app": {
     "windows": [
       {
-        "title": "bantrol",
-        "width": 800,
-        "height": 600
+        "label": "main",
+        "title": "Bantrol",
+        "width": 1180,
+        "height": 800,
+        "minWidth": 940,
+        "minHeight": 660,
+        "center": true
       }
     ],
     "security": {

@@ -1,11 +1,34 @@
 <!doctype html>
-<html lang="en">
+<html lang="pl">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" href="/bantrol-app-logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>front</title>
+    <meta
+      name="description"
+      content="Bantrol — zamień telefon w pilot do komputera. Podgląd ekranu i sterowanie przez lokalne Wi-Fi."
+    />
+    <link
+      rel="preload"
+      href="/fonts/Caladea-Regular.ttf"
+      as="font"
+      type="font/ttf"
+      crossorigin
+    />
+    <title>Bantrol — pilot komputera przez Wi-Fi</title>
+    <script>
+      (() => {
+        try {
+          const stored = localStorage.getItem("bantrol.site.theme");
+          const dark = stored
+            ? stored === "dark"
+            : window.matchMedia("(prefers-color-scheme: dark)").matches;
+          document.documentElement.classList.toggle("dark", dark);
+        } catch (_) {}
+      })();
+    </script>
   </head>
+
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
