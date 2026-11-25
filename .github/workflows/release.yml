@@ -79,6 +79,9 @@ jobs:
   mobile:
     name: Mobile · Android
     needs: desktop
+    # Build the APK even if a desktop platform fails, so a release always has
+    # the mobile app.
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -96,9 +99,14 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
-      - name: Install Android NDK
+      - name: Install Android SDK and NDK
         run: |
-          sdkmanager "ndk;27.0.12077973" > /dev/null
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;27.0.12077973" > /dev/null
           echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
 
@@ -121,7 +129,7 @@ jobs:
       - name: Allow local network connections
         run: |
           MANIFEST=mobile/src-tauri/gen/android/app/src/main/AndroidManifest.xml
-          sed -i 's/<application /<application android:usesCleartextTraffic="true" /' "$MANIFEST"
+          sed -i 's|<application|<application android:usesCleartextTraffic="true"|' "$MANIFEST"
           grep -n "usesCleartextTraffic" "$MANIFEST"
 
       - name: Build Android APK
@@ -143,7 +151,14 @@ jobs:
       - name: Upload APK to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "v${{ steps.version.outputs.value }}" Bantrol-Android.apk --clobber
+        run: |
+          VERSION="v${{ steps.version.outputs.value }}"
+          if ! gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release create "$VERSION" \
+              --title "Bantrol $VERSION" \
+              --notes "Bantrol — Twój komputer pod ręką." || true
+          fi
+          gh release upload "$VERSION" Bantrol-Android.apk --clobber
 
   web:
     name: Landing page
