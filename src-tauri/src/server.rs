@@ -136,16 +136,6 @@ async fn handle_socket(socket: WebSocket, ctx: Ctx) {
         return;
     }
 
-    let settings = ctx.state.current_settings();
-    if settings.require_pairing {
-        let provided = hello["code"].as_str().unwrap_or("").trim();
-        if provided != ctx.state.pairing_code() {
-            let _ = send_error(&mut sender, "Nieprawidłowy kod parowania.").await;
-            let _ = sender.close().await;
-            return;
-        }
-    }
-
     let device = hello["name"]
         .as_str()
         .map(|value| value.trim())
@@ -155,6 +145,50 @@ async fn handle_socket(socket: WebSocket, ctx: Ctx) {
         .take(48)
         .collect::<String>();
 
+    let device_id = hello["deviceId"]
+        .as_str()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| value.chars().take(64).collect::<String>())
+        .unwrap_or_else(|| device.clone());
+
+    let settings = ctx.state.current_settings();
+    let mut authorized = !settings.require_pairing;
+
+    // A phone the user already trusted may reconnect with its saved token,
+    // skipping the pairing code entirely.
+    if !authorized {
+        if let Some(token) = hello["token"]
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            if ctx.state.verify_token(&device_id, token) {
+                authorized = true;
+                ctx.state.touch_device(&device_id);
+            }
+        }
+    }
+
+    if !authorized {
+        let provided = hello["code"].as_str().unwrap_or("").trim();
+        if !provided.is_empty() && provided == ctx.state.pairing_code() {
+            authorized = true;
+        }
+    }
+
+    if !authorized {
+        let _ = send_error(&mut sender, "Nieprawidłowy kod parowania.").await;
+        let _ = sender.close().await;
+        return;
+    }
+
+    let issued_token = if settings.remember_devices {
+        Some(ctx.state.remember_device(&device_id, &device))
+    } else {
+        None
+    };
+
     ctx.state.add_device(device.clone());
 
     let ready = json!({
@@ -163,6 +197,7 @@ async fn handle_socket(socket: WebSocket, ctx: Ctx) {
         "inputEnabled": settings.input_enabled,
         "streamFps": settings.stream_fps,
         "clients": ctx.state.clients.load(Ordering::SeqCst),
+        "token": issued_token,
     });
     if sender
         .send(Message::Text(ready.to_string().into()))

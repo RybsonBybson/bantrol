@@ -69,7 +69,7 @@ export function Titlebar({ running }: { running: boolean }) {
       </div>
 
       <div className="flex items-center gap-1.5">
-        <StatusPill running={running} className="hidden sm:inline-flex" />
+        <StatusPill running={running} />
         <div className="ml-1 flex items-center gap-0.5 rounded-2xl bg-card/70 p-1">
           <ControlButton
             label="Minimalizuj"

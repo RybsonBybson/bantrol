@@ -6,16 +6,10 @@ import {
   MonitorSmartphone,
   Palette,
   Power,
-  Save,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -27,12 +21,6 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import type { Settings, ThemeMode } from "@/lib/tauri";
-
-const themeLabels: Record<ThemeMode, string> = {
-  light: "Jasny",
-  dark: "Ciemny",
-  system: "System",
-};
 
 function smoothnessLabel(fps: number) {
   if (fps <= 8) return "Spokojna";
@@ -46,34 +34,22 @@ function qualityLabel(quality: number) {
   return "Ostra";
 }
 
-const sizeLabels: Record<string, string> = {
-  "960": "Oszczędny",
-  "1280": "Zbalansowany",
-  "1600": "Wyraźny",
-  "1920": "Najostrzejszy",
-};
-
 function Section({
   icon: Icon,
   title,
-  description,
   children,
 }: {
   icon: typeof Palette;
   title: string;
-  description: string;
   children: React.ReactNode;
 }) {
   return (
-    <Card className="gap-5 p-6">
+    <Card className="gap-4 p-6">
       <CardHeader className="flex-row items-center gap-3">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-secondary/20">
           <Icon className="size-4.5" />
         </span>
-        <div>
-          <CardTitle>{title}</CardTitle>
-          <CardDescription className="mt-0.5">{description}</CardDescription>
-        </div>
+        <CardTitle>{title}</CardTitle>
       </CardHeader>
       <div className="flex flex-col gap-3">{children}</div>
     </Card>
@@ -82,23 +58,16 @@ function Section({
 
 function ToggleRow({
   title,
-  description,
   checked,
   onCheckedChange,
 }: {
   title: string;
-  description: string;
   checked: boolean;
   onCheckedChange: (value: boolean) => void;
 }) {
   return (
     <div className="flex items-center justify-between gap-5 rounded-2xl bg-secondary/10 px-4 py-3.5">
-      <div className="min-w-0">
-        <p className="text-sm font-semibold">{title}</p>
-        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-          {description}
-        </p>
-      </div>
+      <p className="text-sm font-semibold">{title}</p>
       <Switch checked={checked} onCheckedChange={onCheckedChange} />
     </div>
   );
@@ -106,7 +75,6 @@ function ToggleRow({
 
 function SliderRow({
   title,
-  description,
   value,
   display,
   min,
@@ -115,7 +83,6 @@ function SliderRow({
   onCommit,
 }: {
   title: string;
-  description: string;
   value: number;
   display: string;
   min: number;
@@ -131,11 +98,8 @@ function SliderRow({
 
   return (
     <div className="rounded-2xl bg-secondary/10 p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-semibold">{title}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
-        </div>
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-sm font-semibold">{title}</p>
         <span className="rounded-full bg-card px-3 py-1 text-xs font-bold">
           {display}
         </span>
@@ -166,103 +130,63 @@ export function SettingsView({
 }) {
   return (
     <div className="grid gap-5 xl:grid-cols-2">
-      <Section
-        icon={Palette}
-        title="Wygląd"
-        description="Motyw jasny, ciemny lub dopasowany do systemu."
-      >
+      <Section icon={Palette} title="Wygląd">
         <div className="rounded-2xl bg-secondary/10 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold">Motyw aplikacji</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Wybierz wygodny odcień — Bantrol zadba o czytelność.
-              </p>
-            </div>
-            <span className="rounded-full bg-card px-3 py-1 text-xs font-bold">
-              {themeLabels[settings.theme]}
-            </span>
-          </div>
           <ThemeSwitcher
-            className="mt-4"
             value={settings.theme}
             onChange={(theme: ThemeMode) => onUpdate({ theme })}
           />
         </div>
-
-        <div className="flex items-center gap-2 rounded-2xl bg-secondary/10 px-4 py-3 text-xs text-muted-foreground">
-          <Save className="size-3.5 shrink-0" />
-          Zmiany zapisują się automatycznie i są pamiętane po restarcie.
-        </div>
       </Section>
 
-      <Section
-        icon={Power}
-        title="System"
-        description="Uruchamianie i dyskretna praca w tle."
-      >
+      <Section icon={Power} title="System">
         <ToggleRow
           title="Uruchamiaj z komputerem"
-          description="Bantrol włączy się razem z systemem i od razu będzie gotowy na telefon."
           checked={settings.autostart}
           onCheckedChange={(autostart) => onUpdate({ autostart })}
         />
         <ToggleRow
           title="Pracuj w tle"
-          description="Zamknięcie okna schowa Bantrola do zasobnika. Połączenie z telefonem pozostanie aktywne."
           checked={settings.runInBackground}
           onCheckedChange={(runInBackground) => onUpdate({ runInBackground })}
         />
         <div className="grid grid-cols-2 gap-2">
           <Button variant="subtle" onClick={onHide}>
             <Minus className="size-4" />
-            Ukryj okno
+            Ukryj
           </Button>
           <Button variant="ghost" onClick={onQuit}>
             <LogOut className="size-4" />
-            Zakończ aplikację
+            Zakończ
           </Button>
         </div>
       </Section>
 
-      <Section
-        icon={MonitorSmartphone}
-        title="Połączenie"
-        description="Zasady łączenia telefonu z komputerem."
-      >
+      <Section icon={MonitorSmartphone} title="Połączenie">
         <ToggleRow
           title="Wymagaj kodu parowania"
-          description="Nowy telefon musi podać aktualny kod widoczny na pulpicie."
           checked={settings.requirePairing}
           onCheckedChange={(requirePairing) => onUpdate({ requirePairing })}
         />
         <ToggleRow
+          title="Zapamiętuj telefony"
+          checked={settings.rememberDevices}
+          onCheckedChange={(rememberDevices) => onUpdate({ rememberDevices })}
+        />
+        <ToggleRow
           title="Zezwalaj na sterowanie"
-          description="Gdy wyłączone, telefon widzi tylko podgląd ekranu — bez kursora i kliknięć."
           checked={settings.inputEnabled}
           onCheckedChange={(inputEnabled) => onUpdate({ inputEnabled })}
         />
-        <div className="rounded-2xl bg-secondary/10 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-          Połączenie działa wyłącznie między Twoim komputerem a telefonem w tej
-          samej sieci.
-        </div>
       </Section>
 
-      <Section
-        icon={Gauge}
-        title="Obraz i płynność"
-        description="Dopasuj podgląd do swojego telefonu i sieci."
-      >
+      <Section icon={Gauge} title="Obraz">
         <div className="rounded-2xl bg-secondary/10 p-4">
-          <p className="text-sm font-semibold">Szczegółowość obrazu</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Ostrzejszy obraz wygląda lepiej, ale potrzebuje więcej miejsca.
-          </p>
           <Select
             value={String(settings.streamWidth)}
             onValueChange={(value) => onUpdate({ streamWidth: Number(value) })}
           >
-            <SelectTrigger className="mt-3">
+            <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -272,14 +196,10 @@ export function SettingsView({
               <SelectItem value="1920">Najostrzejszy</SelectItem>
             </SelectContent>
           </Select>
-          <p className="mt-2 text-xs text-muted-foreground">
-            Wybrany: {sizeLabels[String(settings.streamWidth)] ?? "Zbalansowany"}
-          </p>
         </div>
 
         <SliderRow
           title="Płynność"
-          description="Jak często odświeża się podgląd ekranu."
           value={settings.streamFps}
           display={smoothnessLabel(settings.streamFps)}
           min={1}
@@ -289,8 +209,7 @@ export function SettingsView({
         />
 
         <SliderRow
-          title="Jakość obrazu"
-          description="Więcej szczegółów albo lżejsze przesyłanie."
+          title="Jakość"
           value={settings.jpegQuality}
           display={qualityLabel(settings.jpegQuality)}
           min={30}
@@ -298,11 +217,6 @@ export function SettingsView({
           step={2}
           onCommit={(jpegQuality) => onUpdate({ jpegQuality })}
         />
-
-        <div className="rounded-2xl bg-accent/10 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-          Podgląd uruchamia się sam, gdy połączysz telefon, i zatrzymuje się po
-          jego rozłączeniu.
-        </div>
       </Section>
     </div>
   );

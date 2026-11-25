@@ -3,12 +3,32 @@ export interface PairInfo {
   port: number;
   code: string;
   name: string;
+  deviceId?: string;
+  token?: string;
 }
 
 const STORAGE_KEY = "bantrol.mobile.computer";
+const DEVICE_KEY = "bantrol.mobile.deviceId";
 
 export function isTauri() {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+/** A stable id for this phone, so the desktop can remember it. */
+export function deviceId(): string {
+  try {
+    const stored = localStorage.getItem(DEVICE_KEY);
+    if (stored) return stored;
+    const bytes = new Uint8Array(12);
+    crypto.getRandomValues(bytes);
+    const id = Array.from(bytes, (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    localStorage.setItem(DEVICE_KEY, id);
+    return id;
+  } catch {
+    return `phone-${Math.random().toString(16).slice(2, 14)}`;
+  }
 }
 
 /** Reads the pairing data encoded in the QR code shown on the desktop. */
@@ -46,6 +66,8 @@ export function loadLastComputer(): PairInfo | null {
       port: parsed.port,
       code: parsed.code ?? "",
       name: parsed.name ?? "Komputer",
+      deviceId: parsed.deviceId,
+      token: parsed.token,
     };
   } catch {
     return null;
@@ -58,6 +80,11 @@ export function saveLastComputer(info: PairInfo) {
   } catch {
     // Storage is optional; pairing still works without it.
   }
+}
+
+export function updateLastComputerToken(token: string) {
+  const current = loadLastComputer();
+  if (current) saveLastComputer({ ...current, token });
 }
 
 export function forgetLastComputer() {

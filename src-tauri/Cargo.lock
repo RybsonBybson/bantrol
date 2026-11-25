@@ -304,6 +304,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "urlencoding",
+ "webview2-com",
 ]
 
 [[package]]

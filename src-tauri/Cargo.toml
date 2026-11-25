@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "Bantrol — steruj komputerem z telefonu"
 authors = ["Bantrol"]
 edition = "2024"
+# Pinned to Tauri's MSRV: the deprecated `screenshots` crate used for capture
+# no longer compiles on newer Rust (a Linux-only never-type-fallback error).
+rust-version = "1.90"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -35,6 +38,10 @@ jpeg-encoder = "0.7"
 urlencoding = "2"
 local-ip-address = "0.6"
 getrandom = "0.3"
+
+# Used only to disable the webview context menu and devtools on Windows.
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

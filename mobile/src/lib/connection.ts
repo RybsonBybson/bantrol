@@ -1,9 +1,10 @@
-import type { PairInfo } from "@/lib/pairing";
+import { deviceId, type PairInfo } from "@/lib/pairing";
 
 export interface ReadyInfo {
   deviceName: string;
   inputEnabled: boolean;
   clients: number;
+  token?: string;
 }
 
 export interface ConnectionHandlers {
@@ -32,6 +33,8 @@ export class RemoteConnection {
           type: "hello",
           code: info.code,
           name: deviceName,
+          deviceId: info.deviceId ?? deviceId(),
+          token: info.token,
         }),
       );
     };
@@ -45,12 +48,14 @@ export class RemoteConnection {
             deviceName?: string;
             inputEnabled?: boolean;
             clients?: number;
+            token?: string;
           };
           if (message.type === "ready") {
             handlers.onReady({
               deviceName: message.deviceName ?? info.name,
               inputEnabled: message.inputEnabled ?? true,
               clients: message.clients ?? 1,
+              token: message.token,
             });
           } else if (message.type === "error") {
             handlers.onError(

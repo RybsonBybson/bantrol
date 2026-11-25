@@ -88,6 +88,20 @@ fn regenerate_pairing_code(state: State<'_, Arc<AppState>>) -> String {
 
 #[cfg(desktop)]
 #[tauri::command]
+fn forget_device(state: State<'_, Arc<AppState>>, id: String) -> ServerStatus {
+    state.forget_device(&id);
+    state.status()
+}
+
+#[cfg(desktop)]
+#[tauri::command]
+fn clear_saved_devices(state: State<'_, Arc<AppState>>) -> ServerStatus {
+    state.clear_devices();
+    state.status()
+}
+
+#[cfg(desktop)]
+#[tauri::command]
 fn show_window(app: AppHandle) {
     reveal_main(&app);
 }
@@ -140,6 +154,25 @@ fn toggle_maximize(app: AppHandle) {
 fn close_window(app: AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.close();
+    }
+}
+
+/// The webview is a normal app window, never a browser: no devtools and no
+/// right-click inspection menu.
+#[cfg(target_os = "windows")]
+fn harden_webview(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.with_webview(|webview| {
+            let controller = webview.controller();
+            unsafe {
+                if let Ok(core) = controller.CoreWebView2() {
+                    if let Ok(settings) = core.Settings() {
+                        let _ = settings.SetAreDefaultContextMenusEnabled(false);
+                        let _ = settings.SetAreDevToolsEnabled(false);
+                    }
+                }
+            }
+        });
     }
 }
 
@@ -225,8 +258,9 @@ pub fn run() {
                 .app_config_dir()
                 .map(|directory| directory.join("settings.json"))
                 .unwrap_or_else(|_| PathBuf::from("bantrol-settings.json"));
+            let devices_path = config_path.with_file_name("devices.json");
             let settings = Settings::load(&config_path);
-            let state = Arc::new(AppState::new(settings, config_path));
+            let state = Arc::new(AppState::new(settings, config_path, devices_path));
             app.manage(state.clone());
 
             tauri::async_runtime::spawn(async move {
@@ -238,6 +272,9 @@ pub fn run() {
             });
 
             build_tray(app)?;
+
+            #[cfg(target_os = "windows")]
+            harden_webview(app.handle());
 
             if std::env::args().any(|argument| argument == "--hidden") {
                 if let Some(window) = app.get_webview_window("main") {
@@ -266,6 +303,8 @@ pub fn run() {
             start_server,
             stop_server,
             regenerate_pairing_code,
+            forget_device,
+            clear_saved_devices,
             show_window,
             hide_window,
             quit_app,

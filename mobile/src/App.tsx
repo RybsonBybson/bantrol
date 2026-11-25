@@ -25,11 +25,13 @@ import {
 
 import { RemoteConnection, type ReadyInfo } from "@/lib/connection";
 import {
+  deviceId,
   forgetLastComputer,
   isTauri,
   loadLastComputer,
   parsePairingLink,
   saveLastComputer,
+  updateLastComputerToken,
   type PairInfo,
 } from "@/lib/pairing";
 import { checkMobileUpdate, openUpdate, type MobileUpdate } from "@/lib/updates";
@@ -852,11 +854,23 @@ export default function App() {
     setReady(null);
     setDemo(false);
     setScreen("connecting");
-    saveLastComputer(info);
-    setComputer(info);
 
-    connection.current.connect(info, name, {
+    // Keep the phone id and, when reconnecting to the same computer, its token
+    // so the desktop can recognise us without a fresh pairing code.
+    const previous = loadLastComputer();
+    const sameComputer =
+      previous && previous.host === info.host && previous.port === info.port;
+    const merged: PairInfo = {
+      ...info,
+      deviceId: info.deviceId ?? deviceId(),
+      token: info.token ?? (sameComputer ? previous?.token : undefined),
+    };
+    saveLastComputer(merged);
+    setComputer(merged);
+
+    connection.current.connect(merged, name, {
       onReady: (infoReady) => {
+        if (infoReady.token) updateLastComputerToken(infoReady.token);
         setReady(infoReady);
         setInputEnabled(infoReady.inputEnabled);
         setScreen("remote");

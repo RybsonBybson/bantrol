@@ -47,7 +47,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
-      - uses: dtolnay/rust-toolchain@stable
+      # Pinned to Tauri's MSRV: the deprecated `screenshots` crate used for
+      # capture fails to build on newer Rust (Linux-only inference error).
+      - uses: dtolnay/rust-toolchain@1.90.0
         with:
           targets: ${{ matrix.targets }}
 

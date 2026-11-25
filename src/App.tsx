@@ -5,7 +5,6 @@ import { LayoutDashboard, Settings2, X } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { Sidebar, type View } from "@/components/sidebar";
 import { StartupScreen } from "@/components/startup-screen";
-import { StatusPill } from "@/components/status-pill";
 import { Titlebar } from "@/components/titlebar";
 import { Button } from "@/components/ui/button";
 import { Dashboard } from "@/views/dashboard";
@@ -13,6 +12,8 @@ import { SettingsView } from "@/views/settings";
 import { useResolvedTheme } from "@/hooks/use-theme";
 import { useUpdater } from "@/hooks/use-updater";
 import {
+  clearSavedDevices,
+  forgetDevice as forgetDeviceApi,
   getSettings,
   getStatus,
   isTauri,
@@ -25,7 +26,6 @@ import {
   type ServerStatus,
   type Settings,
 } from "@/lib/tauri";
-import { cn } from "@/lib/utils";
 
 export default function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -59,9 +59,7 @@ export default function App() {
         setSettings(loadedSettings);
         setStatus(loadedStatus);
       } catch {
-        if (alive) {
-          setError("Nie udało się wczytać ustawień. Spróbuj uruchomić Bantrola ponownie.");
-        }
+        if (alive) setError("Nie udało się wczytać danych.");
       } finally {
         if (alive) setReady(true);
       }
@@ -91,8 +89,7 @@ export default function App() {
   useEffect(() => {
     const timer = window.setInterval(async () => {
       try {
-        const next = await getStatus();
-        setStatus(next);
+        setStatus(await getStatus());
       } catch {
         // A single failed poll should not disturb the UI.
       }
@@ -120,7 +117,7 @@ export default function App() {
       setStatus(nextStatus);
       setError(null);
     } catch {
-      setError("Nie udało się zapisać zmian. Spróbuj ponownie.");
+      setError("Nie udało się zapisać zmian.");
     }
   }
 
@@ -132,32 +129,35 @@ export default function App() {
       const next = status.running ? await stopServer() : await startServer();
       setStatus(next);
     } catch {
-      setError("Nie udało się zmienić stanu połączenia. Spróbuj ponownie.");
+      setError("Nie udało się zmienić stanu połączenia.");
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function refreshStatus() {
-    try {
-      setStatus(await getStatus());
-      setError(null);
-    } catch {
-      setError("Nie udało się odświeżyć statusu.");
     }
   }
 
   async function regenerate() {
     try {
       const code = await regeneratePairingCode();
-      setStatus((current) =>
-        current
-          ? { ...current, pairingCode: code }
-          : current,
-      );
-      await refreshStatus();
+      setStatus((current) => (current ? { ...current, pairingCode: code } : current));
+      setStatus(await getStatus());
     } catch {
       setError("Nie udało się wygenerować nowego kodu.");
+    }
+  }
+
+  async function forgetDevice(id: string) {
+    try {
+      setStatus(await forgetDeviceApi(id));
+    } catch {
+      setError("Nie udało się zapomnieć telefonu.");
+    }
+  }
+
+  async function clearDevices() {
+    try {
+      setStatus(await clearSavedDevices());
+    } catch {
+      setError("Nie udało się wyczyścić listy.");
     }
   }
 
@@ -186,45 +186,36 @@ export default function App() {
           onNavigate={setView}
           theme={settings.theme}
           onThemeChange={(theme) => updateSettings({ theme })}
-          status={status}
         />
 
         <main className="flex min-w-0 flex-1 flex-col">
-          <header className="flex flex-wrap items-center justify-between gap-3 px-1 pb-5 pt-1">
+          <header className="flex items-center justify-between gap-3 px-1 pb-5 pt-1">
             <div className="flex items-center gap-3">
               <div className="md:hidden">
                 <Brand compact />
               </div>
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Bantrol · centrum sterowania
-                </p>
-                <h1 className="text-3xl font-bold tracking-tight">
-                  {view === "dashboard" ? "Pulpit" : "Ustawienia"}
-                </h1>
-              </div>
+              <h1 className="text-3xl font-bold tracking-tight">
+                {view === "dashboard" ? "Pulpit" : "Ustawienia"}
+              </h1>
             </div>
 
-            <div className="flex items-center gap-2">
-              <StatusPill running={status?.running ?? false} />
-              <div className="flex gap-1 rounded-2xl bg-card p-1 md:hidden">
-                <Button
-                  variant={view === "dashboard" ? "default" : "ghost"}
-                  size="iconSm"
-                  aria-label="Pulpit"
-                  onClick={() => setView("dashboard")}
-                >
-                  <LayoutDashboard className="size-4" />
-                </Button>
-                <Button
-                  variant={view === "settings" ? "default" : "ghost"}
-                  size="iconSm"
-                  aria-label="Ustawienia"
-                  onClick={() => setView("settings")}
-                >
-                  <Settings2 className="size-4" />
-                </Button>
-              </div>
+            <div className="flex gap-1 rounded-2xl bg-card p-1 md:hidden">
+              <Button
+                variant={view === "dashboard" ? "default" : "ghost"}
+                size="iconSm"
+                aria-label="Pulpit"
+                onClick={() => setView("dashboard")}
+              >
+                <LayoutDashboard className="size-4" />
+              </Button>
+              <Button
+                variant={view === "settings" ? "default" : "ghost"}
+                size="iconSm"
+                aria-label="Ustawienia"
+                onClick={() => setView("settings")}
+              >
+                <Settings2 className="size-4" />
+              </Button>
             </div>
           </header>
 
@@ -235,16 +226,14 @@ export default function App() {
                   initial={{ opacity: 0, y: -8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
-                  className="mb-5 flex items-start gap-3 rounded-2xl bg-accent/15 px-4 py-3 text-sm font-semibold text-accent"
+                  className="mb-5 flex items-center gap-3 rounded-2xl bg-accent/15 px-4 py-3 text-sm font-semibold text-accent"
                 >
-                  <span className="min-w-0 flex-1 break-words">{error}</span>
+                  <span className="min-w-0 flex-1">{error}</span>
                   <button
                     type="button"
-                    aria-label="Zamknij komunikat"
+                    aria-label="Zamknij"
                     onClick={() => setError(null)}
-                    className={cn(
-                      "rounded-full p-1 text-accent transition-colors hover:bg-accent/15",
-                    )}
+                    className="rounded-full p-1 transition-colors hover:bg-accent/15"
                   >
                     <X className="size-4" />
                   </button>
@@ -267,6 +256,8 @@ export default function App() {
                     busy={busy}
                     onToggleServer={toggleServer}
                     onRegenerate={regenerate}
+                    onForget={forgetDevice}
+                    onClearDevices={clearDevices}
                   />
                 ) : (
                   <SettingsView

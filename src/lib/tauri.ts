@@ -7,12 +7,20 @@ export interface Settings {
   autostart: boolean;
   runInBackground: boolean;
   requirePairing: boolean;
+  rememberDevices: boolean;
   inputEnabled: boolean;
   port: number;
   bindAddress: string;
   streamWidth: number;
   streamFps: number;
   jpegQuality: number;
+}
+
+export interface SavedDevice {
+  id: string;
+  name: string;
+  lastSeen: number;
+  connected: boolean;
 }
 
 export interface ServerStatus {
@@ -22,6 +30,7 @@ export interface ServerStatus {
   clients: number;
   devices: string[];
   deviceName: string;
+  savedDevices: SavedDevice[];
 }
 
 export const defaultSettings: Settings = {
@@ -29,6 +38,7 @@ export const defaultSettings: Settings = {
   autostart: false,
   runInBackground: true,
   requirePairing: true,
+  rememberDevices: true,
   inputEnabled: true,
   port: 8787,
   bindAddress: "0.0.0.0",
@@ -36,6 +46,10 @@ export const defaultSettings: Settings = {
   streamFps: 12,
   jpegQuality: 58,
 };
+
+const demoDevices: SavedDevice[] = [
+  { id: "demo-1", name: "Pixel 9", lastSeen: 0, connected: true },
+];
 
 const demoStatus: ServerStatus = {
   running: true,
@@ -45,6 +59,7 @@ const demoStatus: ServerStatus = {
   clients: 1,
   devices: ["Pixel 9"],
   deviceName: "BANTROL-STUDIO",
+  savedDevices: demoDevices,
 };
 
 const DEMO_KEY = "bantrol.demo.settings";
@@ -105,6 +120,21 @@ export async function stopServer(): Promise<ServerStatus> {
 export async function regeneratePairingCode(): Promise<string> {
   if (!isTauri()) return String(Math.floor(100000 + Math.random() * 900000));
   return invoke<string>("regenerate_pairing_code");
+}
+
+export async function forgetDevice(id: string): Promise<ServerStatus> {
+  if (!isTauri()) {
+    return {
+      ...demoStatus,
+      savedDevices: demoStatus.savedDevices.filter((device) => device.id !== id),
+    };
+  }
+  return invoke<ServerStatus>("forget_device", { id });
+}
+
+export async function clearSavedDevices(): Promise<ServerStatus> {
+  if (!isTauri()) return { ...demoStatus, savedDevices: [] };
+  return invoke<ServerStatus>("clear_saved_devices");
 }
 
 export async function hideWindow() {

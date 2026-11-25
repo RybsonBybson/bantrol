@@ -13,6 +13,7 @@ pub struct Settings {
     pub autostart: bool,
     pub run_in_background: bool,
     pub require_pairing: bool,
+    pub remember_devices: bool,
     pub input_enabled: bool,
     pub port: u16,
     pub bind_address: String,
@@ -28,6 +29,7 @@ impl Default for Settings {
             autostart: false,
             run_in_background: true,
             require_pairing: true,
+            remember_devices: true,
             input_enabled: true,
             port: 8787,
             bind_address: "0.0.0.0".to_string(),
@@ -69,8 +71,39 @@ impl Settings {
     }
 }
 
+/// A phone the user chose to remember so it can reconnect without the code.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SavedDevice {
+    pub id: String,
+    pub name: String,
+    pub token: String,
+    pub last_seen: u64,
+}
+
+impl Default for SavedDevice {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            token: String::new(),
+            last_seen: 0,
+        }
+    }
+}
+
+/// A remembered phone, as presented to the UI. The token stays private.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedDeviceView {
+    pub id: String,
+    pub name: String,
+    pub last_seen: u64,
+    pub connected: bool,
+}
+
 /// Everything the desktop UI needs to show a friendly connection state.
-/// Technical details (addresses, ports, protocol info) stay out of this payload.
+/// Technical details (addresses, ports, tokens) stay out of this payload.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerStatus {
@@ -80,11 +113,14 @@ pub struct ServerStatus {
     pub clients: usize,
     pub devices: Vec<String>,
     pub device_name: String,
+    pub saved_devices: Vec<SavedDeviceView>,
 }
 
 pub struct AppState {
     pub settings: RwLock<Settings>,
     pub settings_path: PathBuf,
+    pub devices_path: PathBuf,
+    pub saved_devices: RwLock<Vec<SavedDevice>>,
     pub pairing_code: RwLock<String>,
     pub clients: AtomicUsize,
     pub devices: RwLock<Vec<String>>,
@@ -97,11 +133,14 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(settings: Settings, settings_path: PathBuf) -> Self {
+    pub fn new(settings: Settings, settings_path: PathBuf, devices_path: PathBuf) -> Self {
         let port = settings.port;
+        let saved_devices = load_devices(&devices_path);
         Self {
             settings: RwLock::new(settings),
             settings_path,
+            devices_path,
+            saved_devices: RwLock::new(saved_devices),
             pairing_code: RwLock::new(generate_pairing_code()),
             clients: AtomicUsize::new(0),
             devices: RwLock::new(Vec::new()),
@@ -171,6 +210,76 @@ impl AppState {
         }
     }
 
+    /// True when the given phone is allowed to connect with a saved token.
+    pub fn verify_token(&self, id: &str, token: &str) -> bool {
+        if id.is_empty() || token.is_empty() {
+            return false;
+        }
+        self.saved_devices
+            .read()
+            .map(|devices| {
+                devices
+                    .iter()
+                    .any(|device| device.id == id && device.token == token)
+            })
+            .unwrap_or(false)
+    }
+
+    /// Remember a phone and return the fresh token for it.
+    pub fn remember_device(&self, id: &str, name: &str) -> String {
+        let token = generate_token();
+        let now = now_secs();
+        if let Ok(mut devices) = self.saved_devices.write() {
+            devices.retain(|device| device.id != id);
+            devices.push(SavedDevice {
+                id: id.to_string(),
+                name: name.to_string(),
+                token: token.clone(),
+                last_seen: now,
+            });
+            while devices.len() > 16 {
+                devices.remove(0);
+            }
+        }
+        self.persist_devices();
+        token
+    }
+
+    pub fn touch_device(&self, id: &str) {
+        let now = now_secs();
+        if let Ok(mut devices) = self.saved_devices.write() {
+            if let Some(device) = devices.iter_mut().find(|device| device.id == id) {
+                device.last_seen = now;
+            }
+        }
+        self.persist_devices();
+    }
+
+    pub fn forget_device(&self, id: &str) {
+        if let Ok(mut devices) = self.saved_devices.write() {
+            devices.retain(|device| device.id != id);
+        }
+        self.persist_devices();
+    }
+
+    pub fn clear_devices(&self) {
+        if let Ok(mut devices) = self.saved_devices.write() {
+            devices.clear();
+        }
+        self.persist_devices();
+    }
+
+    fn persist_devices(&self) {
+        if let Ok(devices) = self.saved_devices.read() {
+            if let Ok(json) = serde_json::to_string_pretty(&*devices) {
+                if let Some(parent) = self.devices_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let _ = std::fs::write(&self.devices_path, json);
+            }
+        }
+    }
+
     pub fn local_ip(&self) -> Option<std::net::IpAddr> {
         local_ip_address::local_ip().ok()
     }
@@ -202,17 +311,36 @@ impl AppState {
             None
         };
 
+        let connected = self
+            .devices
+            .read()
+            .map(|value| value.clone())
+            .unwrap_or_default();
+
+        let saved_devices = self
+            .saved_devices
+            .read()
+            .map(|devices| {
+                devices
+                    .iter()
+                    .map(|device| SavedDeviceView {
+                        id: device.id.clone(),
+                        name: device.name.clone(),
+                        last_seen: device.last_seen,
+                        connected: connected.iter().any(|name| name == &device.name),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
         ServerStatus {
             running,
             pairing_code,
             pairing_link,
             clients: self.clients.load(Ordering::SeqCst),
-            devices: self
-                .devices
-                .read()
-                .map(|value| value.clone())
-                .unwrap_or_default(),
+            devices: connected,
             device_name,
+            saved_devices,
         }
     }
 }
@@ -223,6 +351,20 @@ pub fn device_name() -> String {
         .ok()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| "Bantrol".to_string())
+}
+
+fn load_devices(path: &Path) -> Vec<SavedDevice> {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|contents| serde_json::from_str(&contents).ok())
+        .unwrap_or_default()
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
 }
 
 fn generate_pairing_code() -> String {
@@ -236,4 +378,17 @@ fn generate_pairing_code() -> String {
         .map(|duration| duration.as_nanos())
         .unwrap_or(0);
     format!("{:06}", (nanos / 97) % 1_000_000)
+}
+
+fn generate_token() -> String {
+    let mut bytes = [0u8; 16];
+    if getrandom::fill(&mut bytes).is_ok() {
+        return bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    }
+
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    format!("{nanos:032x}")
 }
