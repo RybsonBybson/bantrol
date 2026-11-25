@@ -17,12 +17,10 @@ import {
   getSettings,
   getStatus,
   isTauri,
-  quitApp,
   regeneratePairingCode,
   saveSettings,
   startServer,
   stopServer,
-  hideWindow as hideAppWindow,
   type ServerStatus,
   type Settings,
 } from "@/lib/tauri";
@@ -70,23 +68,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!isTauri()) return;
-    let alive = true;
-    import("@tauri-apps/plugin-autostart")
-      .then((plugin) => plugin.isEnabled())
-      .then((enabled) => {
-        if (!alive) return;
-        setSettings((current) =>
-          current ? { ...current, autostart: enabled } : current,
-        );
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
     const timer = window.setInterval(async () => {
       try {
         setStatus(await getStatus());
@@ -105,12 +86,12 @@ export default function App() {
     setSettings(next);
 
     try {
-      if (patch.autostart !== undefined && isTauri()) {
+      if (patch.autostartMode !== undefined && isTauri()) {
         const plugin = await import("@tauri-apps/plugin-autostart");
-        if (patch.autostart) {
-          await plugin.enable();
-        } else {
+        if (patch.autostartMode === "off") {
           await plugin.disable();
+        } else {
+          await plugin.enable();
         }
       }
       const nextStatus = await saveSettings(next);
@@ -263,8 +244,6 @@ export default function App() {
                   <SettingsView
                     settings={settings}
                     onUpdate={updateSettings}
-                    onHide={() => void hideAppWindow()}
-                    onQuit={() => void quitApp()}
                   />
                 )}
               </motion.div>

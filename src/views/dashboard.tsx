@@ -119,19 +119,19 @@ export function Dashboard({
                 </div>
               </div>
 
-              <div className="shrink-0 rounded-3xl bg-card p-3">
+              {/* Plain white box, no clipping: every QR module stays scannable. */}
+              <div className="shrink-0 rounded-2xl bg-white p-2.5">
                 {pairingLink ? (
-                  <div className="overflow-hidden rounded-2xl">
-                    <QRCodeSVG
-                      value={pairingLink}
-                      size={144}
-                      bgColor="#F3FDFE"
-                      fgColor="#181D26"
-                      level="M"
-                    />
-                  </div>
+                  <QRCodeSVG
+                    value={pairingLink}
+                    size={152}
+                    bgColor="#FFFFFF"
+                    fgColor="#181D26"
+                    level="M"
+                    marginSize={2}
+                  />
                 ) : (
-                  <div className="flex size-[144px] flex-col items-center justify-center gap-2 text-center text-muted-foreground">
+                  <div className="flex size-[152px] flex-col items-center justify-center gap-2 text-center text-muted-foreground">
                     <WifiOff className="size-7" />
                     <span className="text-xs font-semibold">Wyłączone</span>
                   </div>

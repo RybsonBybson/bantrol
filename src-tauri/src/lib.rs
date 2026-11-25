@@ -236,7 +236,16 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
 }
 
 pub fn run() {
-    let builder = tauri::Builder::default()
+    // Registered first: a second launch focuses the already running window
+    // instead of starting another process.
+    let builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        reveal_main(app);
+    }));
+
+    let builder = builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_os::init());
 
@@ -244,7 +253,7 @@ pub fn run() {
     let builder = builder
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
-            Some(vec!["--hidden"]),
+            Some(vec!["--autostart"]),
         ))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init());
@@ -260,6 +269,7 @@ pub fn run() {
                 .unwrap_or_else(|_| PathBuf::from("bantrol-settings.json"));
             let devices_path = config_path.with_file_name("devices.json");
             let settings = Settings::load(&config_path);
+            let start_minimized = settings.autostart_mode == "minimized";
             let state = Arc::new(AppState::new(settings, config_path, devices_path));
             app.manage(state.clone());
 
@@ -276,7 +286,11 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             harden_webview(app.handle());
 
-            if std::env::args().any(|argument| argument == "--hidden") {
+            // Launched by the system: only hide when the user picked the
+            // "start minimized" option.
+            let launched_by_autostart = std::env::args().any(|argument| argument == "--autostart");
+            let force_hidden = std::env::args().any(|argument| argument == "--hidden");
+            if force_hidden || (launched_by_autostart && start_minimized) {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.hide();
                 }

@@ -4,20 +4,18 @@ import {
   ArrowDown,
   ArrowUp,
   Check,
+  ChevronDown,
   Download,
   Keyboard,
   Loader2,
   LogOut,
   Maximize2,
   Monitor,
-  Moon,
   MousePointerClick,
   QrCode,
   RefreshCw,
   ScanLine,
-  ShieldCheck,
   Smartphone,
-  Sun,
   Wifi,
   WifiOff,
   X,
@@ -34,13 +32,18 @@ import {
   updateLastComputerToken,
   type PairInfo,
 } from "@/lib/pairing";
-import { checkMobileUpdate, openUpdate, type MobileUpdate } from "@/lib/updates";
+import {
+  checkMobileUpdate,
+  downloadAndInstall,
+  type MobileUpdate,
+} from "@/lib/updates";
 
 const APP_VERSION = "0.1.0";
 const DEMO = !isTauri();
 
 type ThemeMode = "system" | "light" | "dark";
 type Screen = "boot" | "pair" | "connecting" | "remote";
+type UpdateState = "idle" | "downloading" | "installing";
 
 function phoneName() {
   try {
@@ -94,6 +97,39 @@ function useMobileTheme() {
   return { theme, dark, setTheme };
 }
 
+function Select({
+  value,
+  onChange,
+  options,
+  label,
+  className = "",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+  label: string;
+  className?: string;
+}) {
+  return (
+    <label className={`relative flex items-center ${className}`}>
+      <span className="sr-only">{label}</span>
+      <select
+        aria-label={label}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-10 w-full appearance-none rounded-2xl bg-secondary/20 pl-3 pr-8 text-xs font-semibold text-foreground outline-none"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-2.5 size-4 text-muted-foreground" />
+    </label>
+  );
+}
+
 function ThemeToggle({
   theme,
   onChange,
@@ -103,40 +139,18 @@ function ThemeToggle({
   onChange: (mode: ThemeMode) => void;
   className?: string;
 }) {
-  const options: Array<{ value: ThemeMode; label: string; icon: typeof Sun }> = [
-    { value: "light", label: "Jasny", icon: Sun },
-    { value: "dark", label: "Ciemny", icon: Moon },
-    { value: "system", label: "System", icon: Monitor },
-  ];
-
   return (
-    <div
-      role="group"
-      aria-label="Motyw aplikacji"
-      className={`grid grid-cols-3 gap-1 rounded-2xl bg-secondary/20 p-1 ${className}`}
-    >
-      {options.map((option) => {
-        const Icon = option.icon;
-        const active = theme === option.value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            aria-pressed={active}
-            aria-label={option.label}
-            onClick={() => onChange(option.value)}
-            className={`flex h-9 items-center justify-center gap-1.5 rounded-xl px-2 text-[11px] font-semibold transition-colors ${
-              active
-                ? "bg-card text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Icon className="size-3.5" />
-            <span className="hidden min-[360px]:inline">{option.label}</span>
-          </button>
-        );
-      })}
-    </div>
+    <Select
+      label="Jasność"
+      value={theme}
+      onChange={(value) => onChange(value as ThemeMode)}
+      options={[
+        { value: "light", label: "Jasny" },
+        { value: "dark", label: "Ciemny" },
+        { value: "system", label: "System" },
+      ]}
+      className={className}
+    />
   );
 }
 
@@ -242,11 +256,17 @@ function ConnectingScreen({
 function PairScreen({
   computer,
   update,
+  updateState,
+  updateProgress,
   error,
   scanning,
+  manualCode,
   theme,
   onThemeChange,
   onScan,
+  onManualCodeChange,
+  onManualSubmit,
+  onInstallUpdate,
   onReconnect,
   onForget,
   onDismissError,
@@ -254,11 +274,17 @@ function PairScreen({
 }: {
   computer: PairInfo | null;
   update: MobileUpdate | null;
+  updateState: UpdateState;
+  updateProgress: number;
   error: string | null;
   scanning: boolean;
+  manualCode: string;
   theme: ThemeMode;
   onThemeChange: (mode: ThemeMode) => void;
   onScan: () => void;
+  onManualCodeChange: (value: string) => void;
+  onManualSubmit: () => void;
+  onInstallUpdate: () => void;
   onReconnect: () => void;
   onForget: () => void;
   onDismissError: () => void;
@@ -322,7 +348,7 @@ function PairScreen({
                 pod ręką.
               </h1>
               <p className="mx-auto mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground landscape:mx-0">
-                Zeskanuj kod QR z ekranu komputera, aby połączyć urządzenia.
+                Zeskanuj kod QR z ekranu komputera albo wpisz kod parowania.
                 Bez kabli, kont i chmury.
               </p>
             </div>
@@ -356,18 +382,27 @@ function PairScreen({
                 className="flex items-center gap-3 rounded-2xl bg-primary/10 p-4"
               >
                 <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-                  <Download className="size-5" />
+                  {updateState === "idle" ? (
+                    <Download className="size-5" />
+                  ) : (
+                    <Loader2 className="size-5 animate-spin" />
+                  )}
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-bold">Nowa wersja {update.version}</p>
                   <p className="text-xs text-muted-foreground">
-                    Zaktualizuj Bantrola, aby mieć najnowsze udogodnienia.
+                    {updateState === "downloading"
+                      ? `Pobieranie… ${updateProgress}%`
+                      : updateState === "installing"
+                        ? "Uruchamiam instalator…"
+                        : "Pobierz i zainstaluj najnowszą wersję."}
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => void openUpdate(update.url)}
-                  className="shrink-0 rounded-xl bg-card px-3 py-2 text-xs font-bold"
+                  onClick={onInstallUpdate}
+                  disabled={updateState !== "idle"}
+                  className="shrink-0 rounded-xl bg-card px-3 py-2 text-xs font-bold disabled:opacity-50"
                 >
                   Zaktualizuj
                 </button>
@@ -389,7 +424,47 @@ function PairScreen({
               {scanning ? "Otwieramy aparat…" : "Zeskanuj kod QR"}
             </motion.button>
 
-            {computer ? (
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                onManualSubmit();
+              }}
+              className="rounded-3xl bg-card p-4"
+            >
+              <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                <Keyboard className="size-3.5" />
+                Wpisz kod z komputera
+              </div>
+              <div className="mt-3 flex gap-2">
+                <input
+                  value={manualCode}
+                  onChange={(event) =>
+                    onManualCodeChange(
+                      event.target.value.replace(/\D/g, "").slice(0, 6),
+                    )
+                  }
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="000000"
+                  aria-label="Kod parowania"
+                  className="h-12 min-w-0 flex-1 rounded-2xl bg-secondary/20 px-4 text-center text-lg font-bold tracking-[0.4em] tabular-nums outline-none placeholder:tracking-[0.4em] placeholder:text-muted-foreground/50"
+                />
+                <button
+                  type="submit"
+                  disabled={manualCode.length !== 6}
+                  className="h-12 shrink-0 rounded-2xl bg-primary px-4 text-sm font-bold text-primary-foreground disabled:opacity-40"
+                >
+                  Połącz
+                </button>
+              </div>
+              {!computer && (
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Najpierw połącz się raz kodem QR, aby zapamiętać komputer.
+                </p>
+              )}
+            </form>
+
+            {computer && (
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -422,17 +497,6 @@ function PairScreen({
                   Połącz ponownie
                 </button>
               </motion.div>
-            ) : (
-              <div className="rounded-3xl bg-card p-4">
-                <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-                  <ShieldCheck className="size-3.5" />
-                  Bezpieczne parowanie
-                </div>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                  Kod QR zawiera wszystko, czego potrzebuje telefon. Wystarczy
-                  jedno skanowanie.
-                </p>
-              </div>
             )}
 
             <div className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
@@ -817,8 +881,11 @@ export default function App() {
     loadLastComputer(),
   );
   const [update, setUpdate] = useState<MobileUpdate | null>(null);
+  const [updateState, setUpdateState] = useState<UpdateState>("idle");
+  const [updateProgress, setUpdateProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [manualCode, setManualCode] = useState("");
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const [ready, setReady] = useState<ReadyInfo | null>(null);
   const [inputEnabled, setInputEnabled] = useState(true);
@@ -833,13 +900,28 @@ export default function App() {
   const name = useMemo(phoneName, []);
 
   useEffect(() => {
-    const timeout = new Promise<null>((resolve) =>
-      window.setTimeout(() => resolve(null), 1400),
-    );
-    Promise.race([checkMobileUpdate(APP_VERSION), timeout]).then((result) => {
+    let cancelled = false;
+    (async () => {
+      let current = APP_VERSION;
+      if (isTauri()) {
+        try {
+          const { getVersion } = await import("@tauri-apps/api/app");
+          current = await getVersion();
+        } catch {
+          // Keep the built-in fallback.
+        }
+      }
+      const timeout = new Promise<null>((resolve) =>
+        window.setTimeout(() => resolve(null), 2000),
+      );
+      const result = await Promise.race([checkMobileUpdate(current), timeout]);
+      if (cancelled) return;
       if (result) setUpdate(result);
       setScreen("pair");
-    });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -895,12 +977,22 @@ export default function App() {
     setScanning(true);
     setError(null);
     try {
-      const { scan: scanCode, Format } = await import(
-        "@tauri-apps/plugin-barcode-scanner"
-      );
-      const result = await scanCode({
+      const plugin = await import("@tauri-apps/plugin-barcode-scanner");
+
+      const permission = await plugin.checkPermissions();
+      if (permission !== "granted") {
+        const requested = await plugin.requestPermissions();
+        if (requested !== "granted") {
+          setError(
+            "Brak dostępu do aparatu. Zezwól Bantrolowi na aparat w ustawieniach telefonu.",
+          );
+          return;
+        }
+      }
+
+      const result = await plugin.scan({
         windowed: true,
-        formats: [Format.QRCode],
+        formats: [plugin.Format.QRCode],
       });
       const info = parsePairingLink(result.content);
       if (!info) {
@@ -909,9 +1001,41 @@ export default function App() {
       }
       connect(info);
     } catch {
-      setError("Nie udało się odczytać kodu. Spróbuj ponownie.");
+      setError(
+        "Nie udało się otworzyć aparatu. Sprawdź uprawnienia i spróbuj ponownie.",
+      );
     } finally {
       setScanning(false);
+    }
+  }
+
+  function connectWithCode() {
+    const clean = manualCode.replace(/\D/g, "").slice(0, 6);
+    if (clean.length !== 6) {
+      setError("Kod parowania ma 6 cyfr.");
+      return;
+    }
+    const last = loadLastComputer();
+    if (!last) {
+      setError("Najpierw połącz się raz kodem QR, aby zapamiętać komputer.");
+      return;
+    }
+    setManualCode("");
+    connect({ ...last, code: clean, token: undefined });
+  }
+
+  async function installUpdate() {
+    if (!update) return;
+    setUpdateState("downloading");
+    setUpdateProgress(0);
+    setError(null);
+    try {
+      await downloadAndInstall(update, setUpdateProgress);
+      setUpdateState("installing");
+    } catch {
+      setError("Nie udało się pobrać aktualizacji.");
+    } finally {
+      window.setTimeout(() => setUpdateState("idle"), 1500);
     }
   }
 
@@ -961,11 +1085,17 @@ export default function App() {
           <PairScreen
             computer={computer}
             update={update}
+            updateState={updateState}
+            updateProgress={updateProgress}
             error={error}
             scanning={scanning}
+            manualCode={manualCode}
             theme={theme}
             onThemeChange={setTheme}
             onScan={() => void scan()}
+            onManualCodeChange={setManualCode}
+            onManualSubmit={connectWithCode}
+            onInstallUpdate={() => void installUpdate()}
             onReconnect={() => {
               if (computer) connect(computer);
             }}

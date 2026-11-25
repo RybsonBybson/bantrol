@@ -9,9 +9,19 @@ export type UpdatePhase =
   | "installing"
   | "ready";
 
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      window.setTimeout(() => reject(new Error("update-timeout")), ms),
+    ),
+  ]);
+}
+
 /**
- * Checks for a new desktop build right after launch, then installs it in the
- * background and restarts into the fresh version. Failures never block the app.
+ * On launch Bantrol asks GitHub for a newer build, downloads it and restarts
+ * into it. Any problem (offline, no release, unsigned build) is non-fatal and
+ * simply leaves the app running.
  */
 export function useUpdater() {
   const [phase, setPhase] = useState<UpdatePhase>("idle");
@@ -30,7 +40,7 @@ export function useUpdater() {
       setPhase("checking");
       try {
         const { check } = await import("@tauri-apps/plugin-updater");
-        const update = await check();
+        const update = await withTimeout(check(), 15000);
         if (cancelled) return;
 
         if (!update) {
@@ -44,21 +54,24 @@ export function useUpdater() {
         let total = 0;
         let downloaded = 0;
 
-        await update.downloadAndInstall((event) => {
-          if (cancelled) return;
-          if (event.event === "Started") {
-            total = event.data.contentLength ?? 0;
-            setProgress(total ? 2 : 8);
-          } else if (event.event === "Progress") {
-            downloaded += event.data.chunkLength;
-            if (total > 0) {
-              setProgress(Math.min(99, Math.round((downloaded / total) * 100)));
+        await withTimeout(
+          update.downloadAndInstall((event) => {
+            if (cancelled) return;
+            if (event.event === "Started") {
+              total = event.data.contentLength ?? 0;
+              setProgress(total ? 2 : 8);
+            } else if (event.event === "Progress") {
+              downloaded += event.data.chunkLength;
+              if (total > 0) {
+                setProgress(Math.min(99, Math.round((downloaded / total) * 100)));
+              }
+            } else if (event.event === "Finished") {
+              setProgress(100);
+              setPhase("installing");
             }
-          } else if (event.event === "Finished") {
-            setProgress(100);
-            setPhase("installing");
-          }
-        });
+          }),
+          10 * 60 * 1000,
+        );
 
         if (cancelled) return;
         const { relaunch } = await import("@tauri-apps/plugin-process");

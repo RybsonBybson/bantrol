@@ -91,15 +91,17 @@ Dodaj w GitHubie dwa sekrety (Settings → Secrets and variables → Actions):
 
 Aplikacja mobilna sprawdza najnowsze wydanie i prowadzi do aktualizacji przez mechanizm systemowy Androida.
 
-## Wydania
+## Wydania i wersjonowanie
 
-Workflow `.github/workflows/release.yml` uruchamia się przy pushu do `main`, tagu `v*` lub ręcznie. Buduje:
+Workflow `.github/workflows/release.yml` uruchamia się przy pushu do `main`, tagu `v*` lub ręcznie. Każdy push do `main`:
 
-- instalatory desktopowe (Windows, Linux, macOS),
-- APK na Androida,
-- stronę marketingową.
+1. liczy kolejną wersję (patch) na podstawie ostatniego tagu `vX.Y.Z` — np. `0.1.0` → `0.1.1`,
+2. wpisuje ją spójnie w `package.json`, `src-tauri/tauri.conf.json`, `mobile/package.json` i `mobile/src-tauri/tauri.conf.json` (`scripts/set-version.mjs`),
+3. buduje instalatory desktopowe (Windows, Linux, macOS) oraz APK na Androida i publikuje Release z tagiem `v<wersja>`.
 
-Artefakty trafiają do GitHub Releases. Przycisk „Pobierz” na stronie wykrywa system i pobiera właściwy plik z najnowszego wydania, a w razie braku wydania prowadzi do listy wersji.
+Ponieważ wersja rośnie z każdym wydaniem, automatyczne aktualizacje (desktop i mobile) wykrywają nowszą wersję w najnowszym Release i podpowiadają/prowadzą instalację.
+
+Przycisk „Pobierz” na stronie wykrywa system i pobiera właściwy plik z najnowszego wydania, a w razie braku wydania prowadzi do listy wersji.
 
 ## Wygląd
 

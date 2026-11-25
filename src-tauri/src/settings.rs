@@ -10,7 +10,8 @@ use tokio::sync::broadcast;
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub theme: String,
-    pub autostart: bool,
+    /// "off" | "normal" | "minimized"
+    pub autostart_mode: String,
     pub run_in_background: bool,
     pub require_pairing: bool,
     pub remember_devices: bool,
@@ -26,7 +27,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             theme: "system".to_string(),
-            autostart: false,
+            autostart_mode: "off".to_string(),
             run_in_background: true,
             require_pairing: true,
             remember_devices: true,
@@ -59,6 +60,9 @@ impl Settings {
     pub fn sanitized(mut self) -> Self {
         if self.theme != "light" && self.theme != "dark" {
             self.theme = "system".to_string();
+        }
+        if !matches!(self.autostart_mode.as_str(), "off" | "normal" | "minimized") {
+            self.autostart_mode = "off".to_string();
         }
         self.port = self.port.clamp(1024, 65535);
         if self.bind_address.trim().is_empty() {

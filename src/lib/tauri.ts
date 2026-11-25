@@ -1,10 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export type ThemeMode = "system" | "light" | "dark";
+export type AutostartMode = "off" | "normal" | "minimized";
 
 export interface Settings {
   theme: ThemeMode;
-  autostart: boolean;
+  autostartMode: AutostartMode;
   runInBackground: boolean;
   requirePairing: boolean;
   rememberDevices: boolean;
@@ -35,7 +36,7 @@ export interface ServerStatus {
 
 export const defaultSettings: Settings = {
   theme: "system",
-  autostart: false,
+  autostartMode: "off",
   runInBackground: true,
   requirePairing: true,
   rememberDevices: true,
