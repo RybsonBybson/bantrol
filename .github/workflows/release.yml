@@ -59,18 +59,27 @@ jobs:
 
       - run: npm ci
 
+      # A fresh, unique tag per run so every push publishes its own release.
+      - name: Compute release tag
+        id: meta
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "tag=v${VERSION}-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "name=Bantrol v${VERSION} (build ${{ github.run_number }})" >> "$GITHUB_OUTPUT"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: v__VERSION__
-          releaseName: "Bantrol v__VERSION__"
+          tagName: ${{ steps.meta.outputs.tag }}
+          releaseName: ${{ steps.meta.outputs.name }}
           releaseBody: |
             Bantrol — Twój komputer pod ręką.
 
-            Pobierz wersję dla swojego komputera albo aplikację na Androida.
+            Automatyczny build z commita `${{ github.sha }}`.
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
@@ -145,23 +154,19 @@ jobs:
           cp "$APK" Bantrol-Android.apk
           ls -lh Bantrol-Android.apk
 
-      - name: Read version
-        id: version
-        run: |
-          VERSION=$(node -p "require('./mobile/package.json').version")
-          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Upload APK to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
-          VERSION="v${{ steps.version.outputs.value }}"
-          if ! gh release view "$VERSION" >/dev/null 2>&1; then
-            gh release create "$VERSION" \
-              --title "Bantrol $VERSION" \
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          TAG="v${VERSION}-${{ github.run_number }}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --title "Bantrol v${VERSION} (build ${{ github.run_number }})" \
               --notes "Bantrol — Twój komputer pod ręką." || true
           fi
-          gh release upload "$VERSION" Bantrol-Android.apk --clobber
+          gh release upload "$TAG" Bantrol-Android.apk --clobber
 
   web:
     name: Landing page
