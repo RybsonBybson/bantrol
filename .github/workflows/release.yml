@@ -155,7 +155,9 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+          # Only arm64-v8a: it covers virtually every modern phone and is by far
+          # the biggest factor in keeping the APK small.
+          targets: aarch64-linux-android
 
       - uses: swatinem/rust-cache@v2
         with:
@@ -186,7 +188,7 @@ jobs:
       # phone needs to reach the desktop over the local network.
       - name: Build Android APK
         working-directory: mobile
-        run: npm run tauri android build -- --apk --debug
+        run: npm run tauri android build -- --apk --debug --target aarch64
 
       - name: Collect APK
         run: |

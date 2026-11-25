@@ -23,9 +23,19 @@ serde_json = "1"
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-barcode-scanner = "2"
 
+# The APK we ship is a debug build, so keep it small: no debug info, no
+# symbols and size-oriented optimisation. Without this the .so carries full
+# debug data and the APK balloons into hundreds of MB.
+[profile.dev]
+debug = false
+strip = true
+opt-level = "z"
+incremental = false
+panic = "abort"
+
 [profile.release]
 codegen-units = 1
 lto = true
-opt-level = "s"
+opt-level = "z"
 panic = "abort"
 strip = true
