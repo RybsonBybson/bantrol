@@ -1,8 +1,8 @@
 [package]
 name = "bantrol"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "Bantrol — steruj komputerem z telefonu"
+authors = ["Bantrol"]
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -20,7 +20,10 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
+tauri-plugin-os = "2"
 tauri-plugin-autostart = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
@@ -29,7 +32,9 @@ futures-util = "0.3"
 enigo = "0.6"
 screenshots = "0.8"
 jpeg-encoder = "0.7"
-
+urlencoding = "2"
+local-ip-address = "0.6"
+getrandom = "0.3"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

@@ -1,0 +1,123 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: "Caladea";
+  src: url("/fonts/Caladea-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Caladea";
+  src: url("/fonts/Caladea-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Caladea";
+  src: url("/fonts/Caladea-Italic.ttf") format("truetype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --font-sans: "Caladea", "Cambria", Georgia, serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --radius-2xl: 1.25rem;
+  --radius-3xl: 1.75rem;
+}
+
+:root {
+  --background: #e0fbfc;
+  --foreground: #181d26;
+  --card: #f3fdfe;
+  --card-foreground: #181d26;
+  --primary: #3d5a80;
+  --primary-foreground: #e0fbfc;
+  --secondary: #98c1d9;
+  --secondary-foreground: #181d26;
+  --muted: #cdedf1;
+  --muted-foreground: #3d5a80;
+  --accent: #ee6c4d;
+  --accent-foreground: #e0fbfc;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  color-scheme: light;
+}
+
+.dark {
+  --background: #181d26;
+  --foreground: #e0fbfc;
+  --card: #212833;
+  --card-foreground: #e0fbfc;
+  --primary: #98c1d9;
+  --primary-foreground: #181d26;
+  --secondary: #3d5a80;
+  --secondary-foreground: #e0fbfc;
+  --muted: #2a323f;
+  --muted-foreground: #98c1d9;
+  --accent: #ee6c4d;
+  --accent-foreground: #e0fbfc;
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    border-width: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  html {
+    overflow: hidden;
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+    overscroll-behavior: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
+
+  ::selection {
+    background: var(--accent);
+    color: var(--accent-foreground);
+  }
+}
+
+@utility safe-top {
+  padding-top: calc(0.75rem + var(--safe-top));
+}
+
+@utility safe-bottom {
+  padding-bottom: calc(0.75rem + var(--safe-bottom));
+}

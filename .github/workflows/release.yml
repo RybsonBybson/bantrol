@@ -1,0 +1,161 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    name: Desktop · ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            args: ""
+            targets: ""
+          - name: Linux
+            os: ubuntu-22.04
+            args: ""
+            targets: ""
+          - name: macOS
+            os: macos-latest
+            args: "--target universal-apple-darwin"
+            targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libayatana-appindicator3-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "Bantrol v__VERSION__"
+          releaseBody: |
+            Bantrol — Twój komputer pod ręką.
+
+            Pobierz wersję dla swojego komputera albo aplikację na Androida.
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+          args: ${{ matrix.args }}
+
+  mobile:
+    name: Mobile · Android
+    needs: desktop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager "ndk;27.0.12077973" > /dev/null
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./mobile/src-tauri -> target"
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Prepare Android project
+        working-directory: mobile
+        run: npm run tauri android init
+
+      - name: Allow local network connections
+        run: |
+          MANIFEST=mobile/src-tauri/gen/android/app/src/main/AndroidManifest.xml
+          sed -i 's/<application /<application android:usesCleartextTraffic="true" /' "$MANIFEST"
+          grep -n "usesCleartextTraffic" "$MANIFEST"
+
+      - name: Build Android APK
+        working-directory: mobile
+        run: npm run tauri android build -- --apk --debug
+
+      - name: Collect APK
+        run: |
+          APK=$(find mobile/src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -n 1)
+          cp "$APK" Bantrol-Android.apk
+          ls -lh Bantrol-Android.apk
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./mobile/package.json').version")
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "v${{ steps.version.outputs.value }}" Bantrol-Android.apk --clobber
+
+  web:
+    name: Landing page
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: front/package-lock.json
+      - name: Install landing dependencies
+        working-directory: front
+        run: npm ci
+      - name: Build landing
+        working-directory: front
+        run: npm run build

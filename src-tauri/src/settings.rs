@@ -69,18 +69,17 @@ impl Settings {
     }
 }
 
+/// Everything the desktop UI needs to show a friendly connection state.
+/// Technical details (addresses, ports, protocol info) stay out of this payload.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerStatus {
     pub running: bool,
-    pub port: u16,
-    pub url: Option<String>,
     pub pairing_code: String,
+    pub pairing_link: Option<String>,
     pub clients: usize,
     pub devices: Vec<String>,
     pub device_name: String,
-    pub local_ip: Option<String>,
-    pub last_error: Option<String>,
 }
 
 pub struct AppState {
@@ -153,7 +152,11 @@ impl AppState {
     }
 
     pub fn remove_device(&self, name: &str) {
-        self.clients.fetch_sub(1, Ordering::SeqCst);
+        let _ = self
+            .clients
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
+                Some(value.saturating_sub(1))
+            });
         if let Ok(mut devices) = self.devices.write() {
             if let Some(index) = devices.iter().position(|device| device == name) {
                 devices.remove(index);
@@ -168,41 +171,48 @@ impl AppState {
         }
     }
 
-    pub fn local_ip(&self) -> Option<String> {
-        let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
-        socket.connect("8.8.8.8:80").ok()?;
-        socket
-            .local_addr()
-            .ok()
-            .map(|address| address.ip().to_string())
+    pub fn local_ip(&self) -> Option<std::net::IpAddr> {
+        local_ip_address::local_ip().ok()
     }
 
     pub fn status(&self) -> ServerStatus {
         let running = self.running.load(Ordering::SeqCst);
         let port = *self.port.read().unwrap_or_else(|error| error.into_inner());
-        let local_ip = self.local_ip();
         let bind_address = self.current_settings().bind_address;
+        let pairing_code = self.pairing_code();
+        let device_name = device_name();
+
         let host = if bind_address.is_empty() || bind_address == "0.0.0.0" {
-            local_ip.clone()
+            self.local_ip().map(|address| address.to_string())
         } else {
             Some(bind_address)
         };
+
+        let pairing_link = if running {
+            host.map(|host| {
+                format!(
+                    "bantrol://pair?host={}&port={}&code={}&name={}",
+                    urlencoding::encode(&host),
+                    port,
+                    pairing_code,
+                    urlencoding::encode(&device_name)
+                )
+            })
+        } else {
+            None
+        };
+
         ServerStatus {
             running,
-            port,
-            url: host
-                .filter(|_| running)
-                .map(|ip| format!("http://{ip}:{port}")),
-            pairing_code: self.pairing_code(),
+            pairing_code,
+            pairing_link,
             clients: self.clients.load(Ordering::SeqCst),
-            devices: self.devices.read().map(|value| value.clone()).unwrap_or_default(),
-            device_name: device_name(),
-            local_ip,
-            last_error: self
-                .last_error
+            devices: self
+                .devices
                 .read()
                 .map(|value| value.clone())
-                .unwrap_or(None),
+                .unwrap_or_default(),
+            device_name,
         }
     }
 }
@@ -216,6 +226,11 @@ pub fn device_name() -> String {
 }
 
 fn generate_pairing_code() -> String {
+    let mut bytes = [0u8; 4];
+    if getrandom::fill(&mut bytes).is_ok() {
+        return format!("{:06}", u32::from_le_bytes(bytes) % 1_000_000);
+    }
+
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_nanos())

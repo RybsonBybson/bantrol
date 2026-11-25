@@ -4,7 +4,8 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         State,
     },
-    response::{Html, IntoResponse, Json},
+    http::StatusCode,
+    response::IntoResponse,
     routing::get,
     Router,
 };
@@ -15,11 +16,6 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{broadcast, oneshot};
-
-const MOBILE_PAGE: &str = include_str!("mobile.html");
-const FONT_REGULAR: &[u8] = include_bytes!("../../public/fonts/Caladea-Regular.ttf");
-const FONT_BOLD: &[u8] = include_bytes!("../../public/fonts/Caladea-Bold.ttf");
-const APP_LOGO: &[u8] = include_bytes!("../icons/128x128.png");
 
 #[derive(Clone)]
 struct Ctx {
@@ -68,14 +64,11 @@ pub async fn start(state: Arc<AppState>) -> Result<(), String> {
         state: state.clone(),
         frames: frame_tx.clone(),
     };
+    // Only the mobile app connects here. Browsers are intentionally rejected so
+    // the desktop never exposes a web controller.
     let router = Router::new()
-        .route("/", get(mobile_page))
-        .route("/fonts/Caladea-Regular.ttf", get(font_regular))
-        .route("/fonts/Caladea-Bold.ttf", get(font_bold))
-        .route("/bantrol-app-logo.png", get(app_logo))
         .route("/ws", get(ws_handler))
-        .route("/api/status", get(api_status))
-        .fallback(get(mobile_page))
+        .fallback(not_found)
         .with_state(ctx);
 
     let server_state = state.clone();
@@ -115,48 +108,11 @@ pub fn stop(state: &AppState) {
     }
 }
 
-async fn mobile_page() -> Html<&'static str> {
-    Html(MOBILE_PAGE)
-}
-
-async fn font_regular() -> impl IntoResponse {
+async fn not_found() -> impl IntoResponse {
     (
-        [
-            (axum::http::header::CONTENT_TYPE, "font/ttf"),
-            (axum::http::header::CACHE_CONTROL, "public, max-age=604800"),
-        ],
-        FONT_REGULAR,
+        StatusCode::NOT_FOUND,
+        "Połącz się przez aplikację Bantrol na telefonie.",
     )
-}
-
-async fn font_bold() -> impl IntoResponse {
-    (
-        [
-            (axum::http::header::CONTENT_TYPE, "font/ttf"),
-            (axum::http::header::CACHE_CONTROL, "public, max-age=604800"),
-        ],
-        FONT_BOLD,
-    )
-}
-
-async fn app_logo() -> impl IntoResponse {
-    (
-        [
-            (axum::http::header::CONTENT_TYPE, "image/png"),
-            (axum::http::header::CACHE_CONTROL, "public, max-age=604800"),
-        ],
-        APP_LOGO,
-    )
-}
-
-async fn api_status(State(ctx): State<Ctx>) -> impl IntoResponse {
-    let settings = ctx.state.current_settings();
-    Json(json!({
-        "deviceName": crate::settings::device_name(),
-        "requirePairing": settings.require_pairing,
-        "inputEnabled": settings.input_enabled,
-        "streamFps": settings.stream_fps,
-    }))
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(ctx): State<Ctx>) -> impl IntoResponse {

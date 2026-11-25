@@ -17,14 +17,11 @@ export interface Settings {
 
 export interface ServerStatus {
   running: boolean;
-  port: number;
-  url: string | null;
   pairingCode: string;
+  pairingLink: string | null;
   clients: number;
   devices: string[];
   deviceName: string;
-  localIp: string | null;
-  lastError: string | null;
 }
 
 export const defaultSettings: Settings = {
@@ -42,14 +39,12 @@ export const defaultSettings: Settings = {
 
 const demoStatus: ServerStatus = {
   running: true,
-  port: 8787,
-  url: "http://192.168.1.24:8787",
   pairingCode: "482913",
+  pairingLink:
+    "bantrol://pair?host=192.168.1.24&port=8787&code=482913&name=BANTROL-STUDIO",
   clients: 1,
   devices: ["Pixel 9"],
   deviceName: "BANTROL-STUDIO",
-  localIp: "192.168.1.24",
-  lastError: null,
 };
 
 const DEMO_KEY = "bantrol.demo.settings";
@@ -85,7 +80,7 @@ export async function getSettings(): Promise<Settings> {
 export async function saveSettings(settings: Settings): Promise<ServerStatus> {
   if (!isTauri()) {
     storeDemoSettings(settings);
-    return { ...demoStatus, port: settings.port, url: `http://192.168.1.24:${settings.port}` };
+    return demoStatus;
   }
   return invoke<ServerStatus>("save_settings", { settings });
 }
@@ -101,7 +96,9 @@ export async function startServer(): Promise<ServerStatus> {
 }
 
 export async function stopServer(): Promise<ServerStatus> {
-  if (!isTauri()) return { ...demoStatus, running: false, url: null, clients: 0, devices: [] };
+  if (!isTauri()) {
+    return { ...demoStatus, running: false, pairingLink: null, clients: 0, devices: [] };
+  }
   return invoke<ServerStatus>("stop_server");
 }
 
@@ -118,4 +115,24 @@ export async function hideWindow() {
 export async function quitApp() {
   if (!isTauri()) return;
   await invoke("quit_app");
+}
+
+export async function startDragging() {
+  if (!isTauri()) return;
+  await invoke("start_dragging");
+}
+
+export async function minimizeWindow() {
+  if (!isTauri()) return;
+  await invoke("minimize_window");
+}
+
+export async function toggleMaximize() {
+  if (!isTauri()) return;
+  await invoke("toggle_maximize");
+}
+
+export async function closeWindow() {
+  if (!isTauri()) return;
+  await invoke("close_window");
 }

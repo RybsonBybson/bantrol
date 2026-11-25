@@ -13,33 +13,38 @@ import {
   Sun,
   Wifi,
 } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-
-const downloadUrl = "/downloads/Bantrol-Setup.exe";
+import {
+  fallbackTarget,
+  resolveDownload,
+  RELEASES_PAGE,
+  type DownloadTarget,
+} from "@/lib/releases";
 
 const features = [
   {
     icon: MonitorPlay,
-    title: "Ekran w czasie rzeczywistym",
-    text: "Podgląd pulpitu trafia do telefonu przez lokalny WebSocket. Płynnie, bez chmury i bez wysyłania pikseli poza domową sieć.",
-    tags: ["12–30 fps", "do 1920 px", "JPEG"],
+    title: "Ekran jak na dłoni",
+    text: "Zobacz pulpit komputera na telefonie od razu. Płynnie, wyraźnie i bez czekania.",
+    tags: ["natychmiastowy podgląd", "płynnie", "czytelnie"],
     tone: "card",
   },
   {
     icon: MousePointerClick,
-    title: "Pełna kontrola wejścia",
-    text: "Przesuwaj kursor, klikaj, przewijaj i pisz z klawiatury telefonu. Pilot działa w zwykłej przeglądarce — nic nie instalujesz.",
-    tags: ["kursor", "scroll", "klawiatura"],
+    title: "Pełna kontrola",
+    text: "Przesuwaj kursor, klikaj, przewijaj i pisz z telefonu. Wszystko działa tak, jakbyś siedział przy komputerze.",
+    tags: ["kursor", "kliknięcia", "klawiatura"],
     tone: "secondary",
   },
   {
     icon: ShieldCheck,
     title: "Prywatność z definicji",
-    text: "Połączenie działa tylko w Twoim Wi-Fi. Kod parowania, blokada sterowania i dyskretna praca w zasobniku systemowym.",
-    tags: ["LAN", "kod 6-cyfrowy", "tray"],
+    text: "Obraz i dane zostają między Twoimi urządzeniami. Bez konta, chmury i wysyłania czegokolwiek na zewnątrz.",
+    tags: ["tylko Twoje urządzenia", "kod parowania", "bez konta"],
     tone: "primary",
   },
 ] as const;
@@ -47,17 +52,30 @@ const features = [
 const steps = [
   {
     title: "Zainstaluj Bantrola",
-    text: "Uruchom instalator na komputerze z Windows. Aplikacja od razu wystartuje lokalny serwer i pokaże adres w Wi-Fi.",
+    text: "Pobierz aplikację na komputer i uruchom ją. Od razu będzie gotowa na telefon.",
   },
   {
-    title: "Otwórz pilota na telefonie",
-    text: "Zeskanuj kod QR albo wpisz adres w przeglądarce. Przepisz 6-cyfrowy kod parowania widoczny w aplikacji.",
+    title: "Połącz telefon",
+    text: "Zainstaluj Bantrola na telefonie i zeskanuj kod QR z ekranu komputera.",
   },
   {
     title: "Steruj bezprzewodowo",
-    text: "Dotykaj ekranu, aby klikać, przeciągaj, aby przesuwać kursor, i korzystaj z klawiatury, kiedy trzeba coś wpisać.",
+    text: "Dotykaj ekranu, aby klikać, przeciągaj, aby przesuwać kursor, i pisz z klawiatury.",
   },
 ];
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 22 },
+  show: (index: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: {
+      delay: index * 0.07,
+      duration: 0.5,
+      ease: "easeOut" as const,
+    },
+  }),
+};
 
 function useSiteTheme() {
   const [dark, setDark] = useState(() => {
@@ -75,17 +93,81 @@ function useSiteTheme() {
   return { dark, toggle: () => setDark((value) => !value) };
 }
 
+function useDownloadTarget() {
+  const [target, setTarget] = useState<DownloadTarget>(fallbackTarget);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    resolveDownload().then((resolved) => {
+      if (!alive) return;
+      setTarget(resolved);
+      setLoading(false);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return { target, loading };
+}
+
+function DownloadLink({
+  target,
+  loading,
+  className,
+  children,
+}: {
+  target: DownloadTarget;
+  loading: boolean;
+  className?: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <a
+      href={target.url}
+      download={target.fromRelease || undefined}
+      target={target.fromRelease ? undefined : "_blank"}
+      rel={target.fromRelease ? undefined : "noreferrer"}
+      className={className}
+      aria-busy={loading}
+    >
+      {children ?? (
+        <>
+          <Download className="size-4.5" />
+          {loading ? "Przygotowujemy pobieranie…" : target.label}
+        </>
+      )}
+    </a>
+  );
+}
+
 export default function App() {
   const { dark, toggle } = useSiteTheme();
+  const { target, loading } = useDownloadTarget();
+  const reduce = useReducedMotion();
+
+  const motionProps = (index: number) =>
+    reduce
+      ? {}
+      : {
+          variants: fadeUp,
+          initial: "hidden" as const,
+          whileInView: "show" as const,
+          viewport: { once: true, margin: "-60px" },
+          custom: index,
+        };
 
   return (
     <div className="min-h-full">
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-6 py-6">
         <a href="#top" className="flex items-center gap-3">
-          <img
-            src="/bantrol-app-logo.png"
+          <motion.img
+            src="/bantrol-logo.svg"
             alt="Logo Bantrol"
-            className="size-10 rounded-xl"
+            className="size-10"
+            whileHover={reduce ? undefined : { rotate: -6, scale: 1.05 }}
+            transition={{ type: "spring", stiffness: 300, damping: 18 }}
           />
           <span className="text-xl font-bold tracking-tight">Bantrol</span>
         </a>
@@ -123,10 +205,14 @@ export default function App() {
 
       <main id="top">
         <section className="mx-auto grid w-full max-w-6xl items-center gap-14 px-6 pb-20 pt-8 lg:grid-cols-[1.02fr_0.98fr] lg:gap-10 lg:pb-28 lg:pt-14">
-          <div>
+          <motion.div
+            initial={reduce ? undefined : { opacity: 0, y: 24 }}
+            animate={reduce ? undefined : { opacity: 1, y: 0 }}
+            transition={{ duration: 0.55, ease: "easeOut" }}
+          >
             <Badge variant="muted" className="gap-2 px-3.5 py-1.5">
               <span className="size-1.5 rounded-full bg-accent" />
-              Tauri · 100% lokalnie
+              Bez chmury · Bez konta
             </Badge>
 
             <h1 className="mt-6 text-5xl font-bold leading-[1.02] tracking-tight sm:text-6xl xl:text-[4.4rem]">
@@ -138,16 +224,13 @@ export default function App() {
 
             <p className="mt-6 max-w-md text-lg leading-relaxed text-muted-foreground">
               Bantrol zamienia telefon w pilot do komputera. Podgląd ekranu,
-              kursor, kliknięcia i klawiatura — przez Wi-Fi, bez konta i bez
-              chmury.
+              kursor, kliknięcia i klawiatura — w Twojej domowej sieci, bez
+              konta i bez chmury.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Button asChild variant="accent" size="lg">
-                <a href={downloadUrl} download>
-                  <Download className="size-4.5" />
-                  Pobierz Bantrol
-                </a>
+                <DownloadLink target={target} loading={loading} />
               </Button>
               <Button asChild variant="subtle" size="lg">
                 <a href="#mozliwosci">
@@ -160,7 +243,7 @@ export default function App() {
             <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
               <span className="inline-flex items-center gap-1.5">
                 <Check className="size-3.5" />
-                Windows 10/11
+                Windows, macOS i Linux
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <Check className="size-3.5" />
@@ -171,9 +254,14 @@ export default function App() {
                 Polski interfejs
               </span>
             </div>
-          </div>
+          </motion.div>
 
-          <div className="relative mx-auto w-full max-w-md pb-10 lg:max-w-none">
+          <motion.div
+            initial={reduce ? undefined : { opacity: 0, scale: 0.96, y: 20 }}
+            animate={reduce ? undefined : { opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.6, ease: "easeOut", delay: 0.12 }}
+            className="relative mx-auto w-full max-w-md pb-10 lg:max-w-none"
+          >
             <div className="relative overflow-hidden rounded-[2.75rem] bg-primary p-5 text-primary-foreground sm:p-7">
               <div
                 aria-hidden="true"
@@ -195,8 +283,8 @@ export default function App() {
                   <span className="size-1.5 rounded-full bg-accent" />
                   Podgląd na żywo
                 </span>
-                <span className="rounded-full bg-background/15 px-3 py-1.5 text-xs font-semibold tabular-nums">
-                  1920 × 1080
+                <span className="rounded-full bg-background/15 px-3 py-1.5 text-xs font-semibold">
+                  Twój ekran
                 </span>
               </div>
 
@@ -255,7 +343,7 @@ export default function App() {
             <p className="mt-7 text-center text-xs text-muted-foreground">
               Podgląd poglądowy. Obraz zostaje między komputerem a telefonem.
             </p>
-          </div>
+          </motion.div>
         </section>
 
         <section id="mozliwosci" className="mx-auto w-full max-w-6xl px-6 py-16 md:py-24">
@@ -271,13 +359,13 @@ export default function App() {
               </h2>
             </div>
             <p className="max-w-xs text-sm leading-relaxed text-muted-foreground">
-              Bez aplikacji na telefonie i bez konfiguracji sieci. Wystarczy
-              przeglądarka i wspólne Wi-Fi.
+              Bez konfiguracji sieci i bez kont. Wystarczy Bantrol na komputerze
+              i telefonie.
             </p>
           </div>
 
           <div className="mt-10 grid gap-4 md:grid-cols-3">
-            {features.map((feature) => {
+            {features.map((feature, index) => {
               const Icon = feature.icon;
               const toneClass =
                 feature.tone === "primary"
@@ -286,29 +374,31 @@ export default function App() {
                     ? "bg-secondary text-secondary-foreground"
                     : "bg-card text-card-foreground";
               return (
-                <Card key={feature.title} className={toneClass}>
-                  <span className="flex size-12 items-center justify-center rounded-2xl bg-background/15">
-                    <Icon className="size-5" />
-                  </span>
-                  <div>
-                    <h3 className="text-xl font-bold leading-tight">
-                      {feature.title}
-                    </h3>
-                    <p className="mt-2 text-sm leading-relaxed opacity-75">
-                      {feature.text}
-                    </p>
-                  </div>
-                  <div className="mt-auto flex flex-wrap gap-1.5">
-                    {feature.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="rounded-full bg-background/15 px-2.5 py-1 text-[11px] font-semibold"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </Card>
+                <motion.div key={feature.title} {...motionProps(index)}>
+                  <Card className={`${toneClass} h-full`}>
+                    <span className="flex size-12 items-center justify-center rounded-2xl bg-background/15">
+                      <Icon className="size-5" />
+                    </span>
+                    <div>
+                      <h3 className="text-xl font-bold leading-tight">
+                        {feature.title}
+                      </h3>
+                      <p className="mt-2 text-sm leading-relaxed opacity-75">
+                        {feature.text}
+                      </p>
+                    </div>
+                    <div className="mt-auto flex flex-wrap gap-1.5">
+                      {feature.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="rounded-full bg-background/15 px-2.5 py-1 text-[11px] font-semibold"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </Card>
+                </motion.div>
               );
             })}
           </div>
@@ -318,7 +408,10 @@ export default function App() {
           id="bezpieczenstwo"
           className="mx-auto w-full max-w-6xl px-6 py-10 md:py-16"
         >
-          <div className="rounded-[2.75rem] bg-card p-7 sm:p-10 md:p-14">
+          <motion.div
+            {...motionProps(0)}
+            className="rounded-[2.75rem] bg-card p-7 sm:p-10 md:p-14"
+          >
             <div className="grid gap-10 md:grid-cols-[0.85fr_1.15fr] md:gap-14">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -330,14 +423,14 @@ export default function App() {
                   Zero chmury.
                 </h2>
                 <p className="mt-4 max-w-sm text-sm leading-relaxed text-muted-foreground">
-                  Bantrol nasłuchuje tylko w sieci lokalnej. Nie potrzebuje
-                  konta, subskrypcji ani dostępu do internetu.
+                  Bantrol łączy tylko Twoje urządzenia. Nie potrzebuje konta,
+                  subskrypcji ani dostępu do internetu.
                 </p>
 
                 <div className="mt-8 flex flex-wrap gap-2">
                   <Badge variant="secondary">
                     <Wifi className="size-3.5" />
-                    tylko LAN
+                    tylko Twoje urządzenia
                   </Badge>
                   <Badge variant="secondary">
                     <ScanLine className="size-3.5" />
@@ -345,15 +438,16 @@ export default function App() {
                   </Badge>
                   <Badge variant="secondary">
                     <Keyboard className="size-3.5" />
-                    pełne wejście
+                    pełne sterowanie
                   </Badge>
                 </div>
               </div>
 
               <div className="flex flex-col gap-3">
                 {steps.map((step, index) => (
-                  <div
+                  <motion.div
                     key={step.title}
+                    {...motionProps(index + 1)}
                     className="flex gap-4 rounded-3xl bg-secondary/10 p-5"
                   >
                     <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-sm font-bold text-primary-foreground tabular-nums">
@@ -365,15 +459,18 @@ export default function App() {
                         {step.text}
                       </p>
                     </div>
-                  </div>
+                  </motion.div>
                 ))}
               </div>
             </div>
-          </div>
+          </motion.div>
         </section>
 
         <section id="pobierz" className="mx-auto w-full max-w-6xl px-6 py-16 md:py-24">
-          <div className="relative overflow-hidden rounded-[2.75rem] bg-primary px-7 py-12 text-primary-foreground sm:px-10 md:px-14 md:py-16">
+          <motion.div
+            {...motionProps(0)}
+            className="relative overflow-hidden rounded-[2.75rem] bg-primary px-7 py-12 text-primary-foreground sm:px-10 md:px-14 md:py-16"
+          >
             <div className="pointer-events-none absolute -top-24 right-0 size-72 rounded-full bg-background/10" />
             <div className="relative flex flex-col gap-8 md:flex-row md:items-center md:justify-between">
               <div>
@@ -384,8 +481,8 @@ export default function App() {
                   Zainstaluj i połącz telefon w minutę.
                 </h2>
                 <p className="mt-4 max-w-md text-sm leading-relaxed opacity-75">
-                  Instalator dla Windows 10/11 (64-bit). Serwer startuje razem z
-                  aplikacją, a okno możesz schować do zasobnika.
+                  Bantrol wybierze właściwą wersję dla Twojego urządzenia.
+                  Telefon połączysz kodem QR — bez kabli i konfiguracji.
                 </p>
               </div>
 
@@ -395,17 +492,24 @@ export default function App() {
                   size="lg"
                   className="bg-background text-foreground hover:bg-background/85"
                 >
-                  <a href={downloadUrl} download>
-                    <Download className="size-4.5" />
-                    Pobierz Bantrol 0.1.0
-                  </a>
+                  <DownloadLink target={target} loading={loading} />
                 </Button>
                 <span className="text-center text-xs opacity-70">
-                  Wersja 0.1.0 · instalator .exe
+                  {target.version
+                    ? `Wersja ${target.version} · ${target.hint}`
+                    : target.hint}
                 </span>
+                <a
+                  href={RELEASES_PAGE}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-center text-xs font-semibold underline-offset-4 opacity-70 transition-opacity hover:opacity-100 hover:underline"
+                >
+                  Wszystkie wersje i aplikacja mobilna
+                </a>
               </div>
             </div>
-          </div>
+          </motion.div>
         </section>
       </main>
 
@@ -413,9 +517,9 @@ export default function App() {
         <div className="flex flex-col gap-6 rounded-3xl bg-card p-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <img
-              src="/bantrol-app-logo.png"
+              src="/bantrol-logo.svg"
               alt="Logo Bantrol"
-              className="size-9 rounded-xl"
+              className="size-9"
             />
             <div>
               <p className="text-sm font-bold">Bantrol</p>
@@ -438,9 +542,7 @@ export default function App() {
             <a className="transition-colors hover:text-foreground" href="#pobierz">
               Pobierz
             </a>
-            <span className="text-muted-foreground/70">
-              Tauri + Rust · 2026
-            </span>
+            <span className="text-muted-foreground/70">Bantrol · 2026</span>
           </div>
         </div>
       </footer>

@@ -2,9 +2,11 @@ import {
   LayoutDashboard,
   Settings2,
   ShieldCheck,
+  Smartphone,
   Wifi,
   WifiOff,
 } from "lucide-react";
+import { motion } from "framer-motion";
 
 import { Brand } from "@/components/brand";
 import { ThemeSwitcher } from "@/components/theme-switcher";
@@ -32,6 +34,7 @@ export function Sidebar({
   status: ServerStatus | null;
 }) {
   const running = status?.running ?? false;
+  const clients = status?.clients ?? 0;
 
   return (
     <aside className="hidden h-full w-[264px] shrink-0 flex-col gap-8 overflow-y-auto rounded-3xl bg-card p-5 md:flex">
@@ -48,14 +51,21 @@ export function Sidebar({
               onClick={() => onNavigate(item.id)}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition-colors",
+                "relative flex items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition-colors",
                 active
-                  ? "bg-primary text-primary-foreground"
+                  ? "text-primary-foreground"
                   : "text-muted-foreground hover:bg-secondary/20 hover:text-foreground",
               )}
             >
-              <Icon className="size-4" />
-              {item.label}
+              {active && (
+                <motion.span
+                  layoutId="sidebar-active"
+                  className="absolute inset-0 rounded-2xl bg-primary"
+                  transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                />
+              )}
+              <Icon className="relative size-4" />
+              <span className="relative">{item.label}</span>
             </button>
           );
         })}
@@ -69,16 +79,21 @@ export function Sidebar({
             ) : (
               <WifiOff className="size-3.5" />
             )}
-            {running ? "Sieć lokalna gotowa" : "Serwer wyłączony"}
+            {running ? "Gotowy na telefon" : "Połączenie wyłączone"}
           </div>
-          <p className="mt-2 truncate text-sm font-semibold">
-            {status?.url ?? "Uruchom serwer, aby połączyć telefon"}
-          </p>
-          <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-            <ShieldCheck className="size-3.5" />
-            {status?.clients
-              ? `${status.clients} aktywne połączenie`
-              : "Brak połączonych urządzeń"}
+          <div className="mt-3 flex items-center gap-2 text-sm font-semibold">
+            <ShieldCheck className="size-4 text-accent" />
+            {running
+              ? "Bezpieczne połączenie w Twojej sieci"
+              : "Włącz połączenie na pulpicie"}
+          </div>
+          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <Smartphone className="size-3.5" />
+            {clients === 0
+              ? "Brak połączonych telefonów"
+              : clients === 1
+                ? "1 telefon połączony"
+                : `${clients} telefony połączone`}
           </div>
         </div>
 
@@ -90,7 +105,7 @@ export function Sidebar({
         </div>
 
         <p className="px-1 text-[11px] text-muted-foreground">
-          Bantrol 0.1.0 · Tauri + Rust
+          Bantrol 0.1.0 · Twój komputer pod ręką
         </p>
       </div>
     </aside>

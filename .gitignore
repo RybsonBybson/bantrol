@@ -12,6 +12,16 @@ dist
 dist-ssr
 *.local
 
+# Tauri build output
+src-tauri/target
+mobile/src-tauri/target
+mobile/src-tauri/gen/android
+mobile/src-tauri/gen/apple
+
+# Signing keys
+*.key
+*.pem
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

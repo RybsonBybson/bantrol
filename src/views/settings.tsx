@@ -3,7 +3,7 @@ import {
   Gauge,
   LogOut,
   Minus,
-  Network,
+  MonitorSmartphone,
   Palette,
   Power,
   Save,
@@ -16,7 +16,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -27,13 +26,31 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { ThemeSwitcher } from "@/components/theme-switcher";
-import { cn } from "@/lib/utils";
 import type { Settings, ThemeMode } from "@/lib/tauri";
 
 const themeLabels: Record<ThemeMode, string> = {
   light: "Jasny",
   dark: "Ciemny",
   system: "System",
+};
+
+function smoothnessLabel(fps: number) {
+  if (fps <= 8) return "Spokojna";
+  if (fps <= 16) return "Płynna";
+  return "Bardzo płynna";
+}
+
+function qualityLabel(quality: number) {
+  if (quality <= 45) return "Oszczędna";
+  if (quality <= 70) return "Wyraźna";
+  return "Ostra";
+}
+
+const sizeLabels: Record<string, string> = {
+  "960": "Oszczędny",
+  "1280": "Zbalansowany",
+  "1600": "Wyraźny",
+  "1920": "Najostrzejszy",
 };
 
 function Section({
@@ -119,7 +136,7 @@ function SliderRow({
           <p className="text-sm font-semibold">{title}</p>
           <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
         </div>
-        <span className="rounded-full bg-card px-3 py-1 text-xs font-bold tabular-nums">
+        <span className="rounded-full bg-card px-3 py-1 text-xs font-bold">
           {display}
         </span>
       </div>
@@ -147,23 +164,6 @@ export function SettingsView({
   onHide: () => void;
   onQuit: () => void;
 }) {
-  const [portDraft, setPortDraft] = useState(String(settings.port));
-
-  useEffect(() => {
-    setPortDraft(String(settings.port));
-  }, [settings.port]);
-
-  function commitPort() {
-    const value = Number(portDraft);
-    if (!Number.isFinite(value) || value < 1024 || value > 65535) {
-      setPortDraft(String(settings.port));
-      return;
-    }
-    const next = Math.round(value);
-    setPortDraft(String(next));
-    if (next !== settings.port) onUpdate({ port: next });
-  }
-
   return (
     <div className="grid gap-5 xl:grid-cols-2">
       <Section
@@ -176,8 +176,7 @@ export function SettingsView({
             <div>
               <p className="text-sm font-semibold">Motyw aplikacji</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Paleta Dusk Blue, Powder Blue, Light Cyan, Burnt Peach i Ink
-                Black.
+                Wybierz wygodny odcień — Bantrol zadba o czytelność.
               </p>
             </div>
             <span className="rounded-full bg-card px-3 py-1 text-xs font-bold">
@@ -200,24 +199,24 @@ export function SettingsView({
       <Section
         icon={Power}
         title="System"
-        description="Uruchamianie i praca w tle."
+        description="Uruchamianie i dyskretna praca w tle."
       >
         <ToggleRow
-          title="Autostart z systemem"
-          description="Bantrol uruchomi się razem z komputerem i od razu wystartuje serwer."
+          title="Uruchamiaj z komputerem"
+          description="Bantrol włączy się razem z systemem i od razu będzie gotowy na telefon."
           checked={settings.autostart}
           onCheckedChange={(autostart) => onUpdate({ autostart })}
         />
         <ToggleRow
-          title="Praca w zasobniku systemowym"
-          description="Zamknięcie okna ukryje Bantrola do trayu. Serwer i połączenie pozostaną aktywne."
+          title="Pracuj w tle"
+          description="Zamknięcie okna schowa Bantrola do zasobnika. Połączenie z telefonem pozostanie aktywne."
           checked={settings.runInBackground}
           onCheckedChange={(runInBackground) => onUpdate({ runInBackground })}
         />
         <div className="grid grid-cols-2 gap-2">
           <Button variant="subtle" onClick={onHide}>
             <Minus className="size-4" />
-            Ukryj do trayu
+            Ukryj okno
           </Button>
           <Button variant="ghost" onClick={onQuit}>
             <LogOut className="size-4" />
@@ -227,76 +226,37 @@ export function SettingsView({
       </Section>
 
       <Section
-        icon={Network}
-        title="Sieć i dostęp"
-        description="Port, interfejs oraz zasady łączenia telefonu."
+        icon={MonitorSmartphone}
+        title="Połączenie"
+        description="Zasady łączenia telefonu z komputerem."
       >
-        <div className="rounded-2xl bg-secondary/10 p-4">
-          <p className="text-sm font-semibold">Port serwera</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Zakres 1024–65535. Zmiana zrestartuje serwer lokalny.
-          </p>
-          <div className="mt-3 flex gap-2">
-            <Input
-              inputMode="numeric"
-              value={portDraft}
-              onChange={(event) =>
-                setPortDraft(event.target.value.replace(/\D/g, "").slice(0, 5))
-              }
-              onBlur={commitPort}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") commitPort();
-              }}
-              className="max-w-40 tabular-nums"
-            />
-            <Button variant="secondary" onClick={commitPort}>
-              Zastosuj
-            </Button>
-          </div>
-        </div>
-
-        <div className="rounded-2xl bg-secondary/10 p-4">
-          <p className="text-sm font-semibold">Interfejs sieciowy</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Wszystkie interfejsy pozwalają połączyć się telefonowi w Wi-Fi.
-          </p>
-          <Select
-            value={settings.bindAddress}
-            onValueChange={(bindAddress) => onUpdate({ bindAddress })}
-          >
-            <SelectTrigger className="mt-3">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="0.0.0.0">Wszystkie (Wi-Fi / LAN)</SelectItem>
-              <SelectItem value="127.0.0.1">Tylko ten komputer</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
         <ToggleRow
           title="Wymagaj kodu parowania"
-          description="Nowe połączenia z telefonu muszą podać aktualny kod widoczny na pulpicie."
+          description="Nowy telefon musi podać aktualny kod widoczny na pulpicie."
           checked={settings.requirePairing}
           onCheckedChange={(requirePairing) => onUpdate({ requirePairing })}
         />
         <ToggleRow
           title="Zezwalaj na sterowanie"
-          description="Gdy wyłączone, telefon widzi tylko podgląd ekranu bez ruchu kursora i kliknięć."
+          description="Gdy wyłączone, telefon widzi tylko podgląd ekranu — bez kursora i kliknięć."
           checked={settings.inputEnabled}
           onCheckedChange={(inputEnabled) => onUpdate({ inputEnabled })}
         />
+        <div className="rounded-2xl bg-secondary/10 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+          Połączenie działa wyłącznie między Twoim komputerem a telefonem w tej
+          samej sieci.
+        </div>
       </Section>
 
       <Section
         icon={Gauge}
-        title="Stream ekranu"
-        description="Kompromis między płynnością a obciążeniem Wi-Fi."
+        title="Obraz i płynność"
+        description="Dopasuj podgląd do swojego telefonu i sieci."
       >
         <div className="rounded-2xl bg-secondary/10 p-4">
-          <p className="text-sm font-semibold">Szerokość obrazu</p>
+          <p className="text-sm font-semibold">Szczegółowość obrazu</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Mniejsza szerokość to niższe opóźnienie i mniejsze zużycie pasma.
+            Ostrzejszy obraz wygląda lepiej, ale potrzebuje więcej miejsca.
           </p>
           <Select
             value={String(settings.streamWidth)}
@@ -306,19 +266,22 @@ export function SettingsView({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="960">960 px · oszczędnie</SelectItem>
-              <SelectItem value="1280">1280 px · zbalansowane</SelectItem>
-              <SelectItem value="1600">1600 px · ostry obraz</SelectItem>
-              <SelectItem value="1920">1920 px · maksymalna jakość</SelectItem>
+              <SelectItem value="960">Oszczędny</SelectItem>
+              <SelectItem value="1280">Zbalansowany</SelectItem>
+              <SelectItem value="1600">Wyraźny</SelectItem>
+              <SelectItem value="1920">Najostrzejszy</SelectItem>
             </SelectContent>
           </Select>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Wybrany: {sizeLabels[String(settings.streamWidth)] ?? "Zbalansowany"}
+          </p>
         </div>
 
         <SliderRow
-          title="Liczba klatek"
-          description="Ile razy na sekundę odświeżany jest podgląd."
+          title="Płynność"
+          description="Jak często odświeża się podgląd ekranu."
           value={settings.streamFps}
-          display={`${settings.streamFps} fps`}
+          display={smoothnessLabel(settings.streamFps)}
           min={1}
           max={30}
           step={1}
@@ -326,23 +289,19 @@ export function SettingsView({
         />
 
         <SliderRow
-          title="Jakość JPEG"
-          description="Wyższa jakość zwiększa rozmiar klatek."
+          title="Jakość obrazu"
+          description="Więcej szczegółów albo lżejsze przesyłanie."
           value={settings.jpegQuality}
-          display={`${settings.jpegQuality}%`}
+          display={qualityLabel(settings.jpegQuality)}
           min={30}
           max={90}
           step={2}
           onCommit={(jpegQuality) => onUpdate({ jpegQuality })}
         />
 
-        <div
-          className={cn(
-            "rounded-2xl bg-accent/10 px-4 py-3 text-xs leading-relaxed text-muted-foreground",
-          )}
-        >
-          Streaming startuje automatycznie, gdy tylko połączy się pierwszy
-          telefon, i zatrzymuje się po rozłączeniu ostatniego klienta.
+        <div className="rounded-2xl bg-accent/10 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+          Podgląd uruchamia się sam, gdy połączysz telefon, i zatrzymuje się po
+          jego rozłączeniu.
         </div>
       </Section>
     </div>

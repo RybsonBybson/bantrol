@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "scanner",
+  "description": "Skaner kodu QR dostępny wyłącznie w aplikacji mobilnej.",
+  "windows": ["main"],
+  "platforms": ["android", "iOS"],
+  "permissions": [
+    "barcode-scanner:default"
+  ]
+}

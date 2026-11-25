@@ -18,16 +18,29 @@
         "height": 800,
         "minWidth": 940,
         "minHeight": 660,
-        "center": true
+        "center": true,
+        "decorations": false,
+        "shadow": true,
+        "transparent": false,
+        "resizable": true
       }
     ],
     "security": {
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/RybsonBybson/bantrol/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJDQzQwOTBFMTZEMkM1ODAKUldTQXhkSVdEZ25FTFB1bU9RTkpUYjBFSTd4b0hzSHFrREdLSU1aVXhsR1IrQktqUk0zQm82c2MK"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

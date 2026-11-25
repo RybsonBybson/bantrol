@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { LayoutDashboard, Loader2, Settings2, X } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { LayoutDashboard, Settings2, X } from "lucide-react";
 
 import { Brand } from "@/components/brand";
 import { Sidebar, type View } from "@/components/sidebar";
+import { StartupScreen } from "@/components/startup-screen";
 import { StatusPill } from "@/components/status-pill";
+import { Titlebar } from "@/components/titlebar";
 import { Button } from "@/components/ui/button";
 import { Dashboard } from "@/views/dashboard";
 import { SettingsView } from "@/views/settings";
 import { useResolvedTheme } from "@/hooks/use-theme";
+import { useUpdater } from "@/hooks/use-updater";
 import {
   getSettings,
   getStatus,
@@ -31,6 +35,7 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const settingsRef = useRef<Settings | null>(null);
+  const updater = useUpdater();
 
   useResolvedTheme(settings?.theme ?? "system");
 
@@ -53,8 +58,10 @@ export default function App() {
         settingsRef.current = loadedSettings;
         setSettings(loadedSettings);
         setStatus(loadedStatus);
-      } catch (cause) {
-        if (alive) setError(String(cause));
+      } catch {
+        if (alive) {
+          setError("Nie udało się wczytać ustawień. Spróbuj uruchomić Bantrola ponownie.");
+        }
       } finally {
         if (alive) setReady(true);
       }
@@ -112,8 +119,8 @@ export default function App() {
       const nextStatus = await saveSettings(next);
       setStatus(nextStatus);
       setError(null);
-    } catch (cause) {
-      setError(String(cause));
+    } catch {
+      setError("Nie udało się zapisać zmian. Spróbuj ponownie.");
     }
   }
 
@@ -124,8 +131,8 @@ export default function App() {
     try {
       const next = status.running ? await stopServer() : await startServer();
       setStatus(next);
-    } catch (cause) {
-      setError(String(cause));
+    } catch {
+      setError("Nie udało się zmienić stanu połączenia. Spróbuj ponownie.");
     } finally {
       setBusy(false);
     }
@@ -135,8 +142,8 @@ export default function App() {
     try {
       setStatus(await getStatus());
       setError(null);
-    } catch (cause) {
-      setError(String(cause));
+    } catch {
+      setError("Nie udało się odświeżyć statusu.");
     }
   }
 
@@ -144,114 +151,136 @@ export default function App() {
     try {
       const code = await regeneratePairingCode();
       setStatus((current) =>
-        current ? { ...current, pairingCode: code } : current,
+        current
+          ? { ...current, pairingCode: code }
+          : current,
       );
-    } catch (cause) {
-      setError(String(cause));
+      await refreshStatus();
+    } catch {
+      setError("Nie udało się wygenerować nowego kodu.");
     }
   }
 
-  if (!ready || !settings) {
+  const updateInProgress =
+    updater.phase === "checking" ||
+    updater.phase === "downloading" ||
+    updater.phase === "installing";
+
+  if (!ready || !settings || updateInProgress) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 bg-background">
-        <img
-          src="/bantrol-app-logo.png"
-          alt="Bantrol"
-          className="size-16 rounded-3xl"
-        />
-        <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" />
-          Uruchamianie Bantrola…
-        </div>
-      </div>
+      <StartupScreen
+        phase={updater.phase}
+        progress={updater.progress}
+        version={updater.version}
+      />
     );
   }
 
   return (
-    <div className="flex h-full gap-4 bg-background p-4">
-      <Sidebar
-        view={view}
-        onNavigate={setView}
-        theme={settings.theme}
-        onThemeChange={(theme) => updateSettings({ theme })}
-        status={status}
-      />
+    <div className="flex h-full flex-col bg-background">
+      <Titlebar running={status?.running ?? false} />
 
-      <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex flex-wrap items-center justify-between gap-3 px-1 pb-5 pt-1">
-          <div className="flex items-center gap-3">
-            <div className="md:hidden">
-              <Brand compact />
-            </div>
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Bantrol · centrum sterowania
-              </p>
-              <h1 className="text-3xl font-bold tracking-tight">
-                {view === "dashboard" ? "Pulpit" : "Ustawienia"}
-              </h1>
-            </div>
-          </div>
+      <div className="flex min-h-0 flex-1 gap-4 px-4 pb-4">
+        <Sidebar
+          view={view}
+          onNavigate={setView}
+          theme={settings.theme}
+          onThemeChange={(theme) => updateSettings({ theme })}
+          status={status}
+        />
 
-          <div className="flex items-center gap-2">
-            <StatusPill running={status?.running ?? false} />
-            <div className="flex gap-1 rounded-2xl bg-card p-1 md:hidden">
-              <Button
-                variant={view === "dashboard" ? "default" : "ghost"}
-                size="iconSm"
-                aria-label="Pulpit"
-                onClick={() => setView("dashboard")}
+        <main className="flex min-w-0 flex-1 flex-col">
+          <header className="flex flex-wrap items-center justify-between gap-3 px-1 pb-5 pt-1">
+            <div className="flex items-center gap-3">
+              <div className="md:hidden">
+                <Brand compact />
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Bantrol · centrum sterowania
+                </p>
+                <h1 className="text-3xl font-bold tracking-tight">
+                  {view === "dashboard" ? "Pulpit" : "Ustawienia"}
+                </h1>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <StatusPill running={status?.running ?? false} />
+              <div className="flex gap-1 rounded-2xl bg-card p-1 md:hidden">
+                <Button
+                  variant={view === "dashboard" ? "default" : "ghost"}
+                  size="iconSm"
+                  aria-label="Pulpit"
+                  onClick={() => setView("dashboard")}
+                >
+                  <LayoutDashboard className="size-4" />
+                </Button>
+                <Button
+                  variant={view === "settings" ? "default" : "ghost"}
+                  size="iconSm"
+                  aria-label="Ustawienia"
+                  onClick={() => setView("settings")}
+                >
+                  <Settings2 className="size-4" />
+                </Button>
+              </div>
+            </div>
+          </header>
+
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1 pb-2">
+            <AnimatePresence>
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  className="mb-5 flex items-start gap-3 rounded-2xl bg-accent/15 px-4 py-3 text-sm font-semibold text-accent"
+                >
+                  <span className="min-w-0 flex-1 break-words">{error}</span>
+                  <button
+                    type="button"
+                    aria-label="Zamknij komunikat"
+                    onClick={() => setError(null)}
+                    className={cn(
+                      "rounded-full p-1 text-accent transition-colors hover:bg-accent/15",
+                    )}
+                  >
+                    <X className="size-4" />
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={view}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.22, ease: "easeOut" }}
               >
-                <LayoutDashboard className="size-4" />
-              </Button>
-              <Button
-                variant={view === "settings" ? "default" : "ghost"}
-                size="iconSm"
-                aria-label="Ustawienia"
-                onClick={() => setView("settings")}
-              >
-                <Settings2 className="size-4" />
-              </Button>
-            </div>
-          </div>
-        </header>
-
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1 pb-2">
-          {error && (
-            <div className="mb-5 flex items-start gap-3 rounded-2xl bg-accent/15 px-4 py-3 text-sm font-semibold text-accent">
-              <span className="min-w-0 flex-1 break-words">{error}</span>
-              <button
-                type="button"
-                aria-label="Zamknij komunikat"
-                onClick={() => setError(null)}
-                className={cn(
-                  "rounded-full p-1 text-accent transition-colors hover:bg-accent/15",
+                {view === "dashboard" ? (
+                  <Dashboard
+                    settings={settings}
+                    status={status}
+                    busy={busy}
+                    onToggleServer={toggleServer}
+                    onRegenerate={regenerate}
+                  />
+                ) : (
+                  <SettingsView
+                    settings={settings}
+                    onUpdate={updateSettings}
+                    onHide={() => void hideAppWindow()}
+                    onQuit={() => void quitApp()}
+                  />
                 )}
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-          )}
-
-          {view === "dashboard" ? (
-            <Dashboard
-              settings={settings}
-              status={status}
-              busy={busy}
-              onToggleServer={toggleServer}
-              onRegenerate={regenerate}
-              onRefresh={refreshStatus}
-            />
-          ) : (
-            <SettingsView
-              settings={settings}
-              onUpdate={updateSettings}
-              onHide={() => void hideAppWindow()}
-              onQuit={() => void quitApp()}
-            />
-          )}
-        </div>
-      </main>
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }
