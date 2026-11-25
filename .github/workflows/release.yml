@@ -106,9 +106,11 @@ jobs:
       - name: Install Android SDK and NDK
         run: |
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          # The Tauri Android template uses compileSdk 37 (platform "android-37.0")
+          # and AGP 9.3, which needs build-tools 36.0.0.
           sdkmanager \
             "platform-tools" \
-            "platforms;android-36" \
+            "platforms;android-37.0" \
             "build-tools;36.0.0" \
             "ndk;27.0.12077973" > /dev/null
           echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
@@ -130,12 +132,9 @@ jobs:
         working-directory: mobile
         run: npm run tauri android init
 
-      - name: Allow local network connections
-        run: |
-          MANIFEST=mobile/src-tauri/gen/android/app/src/main/AndroidManifest.xml
-          sed -i 's|<application|<application android:usesCleartextTraffic="true"|' "$MANIFEST"
-          grep -n "usesCleartextTraffic" "$MANIFEST"
-
+      # The generated project already allows cleartext traffic for debug builds
+      # (manifestPlaceholders[usesCleartextTraffic] = "true"), which is what the
+      # phone needs to reach the desktop over the local network.
       - name: Build Android APK
         working-directory: mobile
         run: npm run tauri android build -- --apk --debug
