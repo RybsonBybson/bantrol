@@ -1,4 +1,6 @@
 #[cfg(desktop)]
+mod power;
+#[cfg(desktop)]
 mod server;
 #[cfg(desktop)]
 mod settings;
@@ -16,7 +18,7 @@ use settings::{AppState, ServerStatus, Settings};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, State, WindowEvent,
+    AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 #[cfg(desktop)]
 use tauri_plugin_autostart::MacosLauncher;
@@ -61,6 +63,18 @@ async fn save_settings(
 #[tauri::command]
 fn get_status(state: State<'_, Arc<AppState>>) -> ServerStatus {
     state.status()
+}
+
+/// Re-reads the adapter's Wake-on-LAN state (used by the settings screen).
+#[cfg(desktop)]
+#[tauri::command]
+async fn refresh_wol(state: State<'_, Arc<AppState>>) -> Result<ServerStatus, String> {
+    let state = state.inner().clone();
+    let status = tokio::task::spawn_blocking(power::detect_wol)
+        .await
+        .map_err(|error| error.to_string())?;
+    state.set_wol(status);
+    Ok(state.status())
 }
 
 #[cfg(desktop)]
@@ -155,6 +169,97 @@ fn close_window(app: AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.close();
     }
+}
+
+/// Opens a small, separate window that previews and controls one phone.
+#[cfg(desktop)]
+#[tauri::command]
+fn open_phone_window(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    device_id: String,
+) -> Result<(), String> {
+    let safe = device_id
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric() || *character == '-' || *character == '_')
+        .take(48)
+        .collect::<String>();
+    let label = format!(
+        "phone-{}",
+        if safe.is_empty() { "device" } else { &safe }
+    );
+
+    if let Ok(mut controllers) = state.controllers.lock() {
+        controllers.insert(label.clone(), device_id);
+    }
+
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
+        .title("Bantrol — telefon")
+        .inner_size(420.0, 820.0)
+        .min_inner_size(360.0, 620.0)
+        .decorations(false)
+        .shadow(true)
+        .resizable(true)
+        .center()
+        .build()
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+/// Tells a control window which phone it belongs to.
+#[cfg(desktop)]
+#[tauri::command]
+fn get_controller_device(state: State<'_, Arc<AppState>>, label: String) -> Option<String> {
+    state
+        .controllers
+        .lock()
+        .ok()
+        .and_then(|controllers| controllers.get(&label).cloned())
+}
+
+/// Sends one control message from the desktop to a connected phone.
+#[cfg(desktop)]
+#[tauri::command]
+fn send_phone_control(
+    state: State<'_, Arc<AppState>>,
+    device_id: String,
+    message: serde_json::Value,
+) -> Result<(), String> {
+    state.send_phone(&device_id, message.to_string())
+}
+
+/// The latest state reported by the phone (screen, tab, keyboard...).
+#[cfg(desktop)]
+#[tauri::command]
+fn get_phone_state(
+    state: State<'_, Arc<AppState>>,
+    device_id: String,
+) -> Option<serde_json::Value> {
+    state.phone_state(&device_id)
+}
+
+/// The latest desktop frame, shown inside the phone-control window.
+#[cfg(desktop)]
+#[tauri::command]
+fn get_latest_frame(state: State<'_, Arc<AppState>>) -> Option<String> {
+    use base64::Engine as _;
+
+    let frame = state
+        .latest_frame
+        .read()
+        .ok()
+        .and_then(|frame| frame.clone())?;
+    Some(format!(
+        "data:image/jpeg;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(frame.as_slice())
+    ))
 }
 
 /// The webview is a normal app window, never a browser: no devtools and no
@@ -273,6 +378,17 @@ pub fn run() {
             let state = Arc::new(AppState::new(settings, config_path, devices_path));
             app.manage(state.clone());
 
+            // Detect Wake-on-LAN in the background: the PowerShell probe takes
+            // a moment and must never delay the window.
+            {
+                let state = state.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Ok(status) = tokio::task::spawn_blocking(power::detect_wol).await {
+                        state.set_wol(status);
+                    }
+                });
+            }
+
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = server::start(state.clone()).await {
                     if let Ok(mut slot) = state.last_error.write() {
@@ -301,19 +417,34 @@ pub fn run() {
 
     #[cfg(desktop)]
     let builder = builder
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
+        .on_window_event(|window, event| match event {
+            WindowEvent::CloseRequested { api, .. } => {
+                // Only the main window may hide to the tray; control windows
+                // always close normally.
+                if window.label() != "main" {
+                    return;
+                }
                 let state = window.app_handle().state::<Arc<AppState>>();
                 if state.current_settings().run_in_background {
                     api.prevent_close();
                     let _ = window.hide();
                 }
             }
+            WindowEvent::Destroyed => {
+                if window.label().starts_with("phone-") {
+                    let state = window.app_handle().state::<Arc<AppState>>();
+                    if let Ok(mut controllers) = state.controllers.lock() {
+                        controllers.remove(window.label());
+                    }
+                }
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
             get_status,
+            refresh_wol,
             start_server,
             stop_server,
             regenerate_pairing_code,
@@ -325,7 +456,12 @@ pub fn run() {
             start_dragging,
             minimize_window,
             toggle_maximize,
-            close_window
+            close_window,
+            open_phone_window,
+            get_controller_device,
+            send_phone_control,
+            get_phone_state,
+            get_latest_frame
         ]);
 
     builder

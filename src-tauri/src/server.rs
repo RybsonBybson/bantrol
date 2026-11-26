@@ -16,7 +16,7 @@ use std::net::UdpSocket;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot};
 
 #[derive(Clone)]
 struct Ctx {
@@ -157,6 +157,9 @@ pub fn stop(state: &AppState) {
     if let Ok(mut slot) = state.frame_tx.write() {
         *slot = None;
     }
+    if let Ok(mut latest) = state.latest_frame.write() {
+        *latest = None;
+    }
 }
 
 async fn not_found() -> impl IntoResponse {
@@ -242,6 +245,10 @@ async fn handle_socket(socket: WebSocket, ctx: Ctx) {
 
     ctx.state.add_device(device.clone());
 
+    // A live channel lets the desktop control window talk to this phone.
+    let (control_tx, mut control_rx) = mpsc::unbounded_channel::<String>();
+    ctx.state.register_phone(&device_id, control_tx);
+
     let ready = json!({
         "type": "ready",
         "deviceName": crate::settings::device_name(),
@@ -249,6 +256,7 @@ async fn handle_socket(socket: WebSocket, ctx: Ctx) {
         "streamFps": settings.stream_fps,
         "clients": ctx.state.clients.load(Ordering::SeqCst),
         "token": issued_token,
+        "wol": ctx.state.wol(),
     });
     if sender
         .send(Message::Text(ready.to_string().into()))
@@ -274,9 +282,21 @@ async fn handle_socket(socket: WebSocket, ctx: Ctx) {
                     Err(_) => break,
                 }
             }
+            control = control_rx.recv() => {
+                match control {
+                    Some(text) => {
+                        if sender.send(Message::Text(text.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    None => break,
+                }
+            }
             incoming = receiver.next() => {
                 match incoming {
-                    Some(Ok(Message::Text(text))) => handle_client_message(&ctx, &text).await,
+                    Some(Ok(Message::Text(text))) => {
+                        handle_client_message(&ctx, &device_id, &text).await
+                    }
                     Some(Ok(Message::Close(_))) | None => break,
                     Some(Err(_)) => break,
                     _ => {}
@@ -285,6 +305,7 @@ async fn handle_socket(socket: WebSocket, ctx: Ctx) {
         }
     }
 
+    ctx.state.unregister_phone(&device_id);
     ctx.state.remove_device(&device);
 }
 
@@ -301,10 +322,25 @@ async fn send_error(
         .await
 }
 
-async fn handle_client_message(ctx: &Ctx, text: &str) {
+async fn handle_client_message(ctx: &Ctx, device_id: &str, text: &str) {
     let Ok(message) = serde_json::from_str::<Value>(text) else {
         return;
     };
+
+    // The phone reports what it shows so the control window can mirror it.
+    if message["type"].as_str() == Some("phone_state") {
+        ctx.state.set_phone_state(device_id, message["state"].clone());
+        return;
+    }
+
+    // Power actions are independent of mouse/keyboard input; the phone confirms
+    // them before sending. The connection is already paired and authorised.
+    if message["type"].as_str() == Some("power") {
+        let action = message["action"].as_str().unwrap_or("").to_string();
+        let _ = tokio::task::spawn_blocking(move || crate::power::run_power_action(&action)).await;
+        return;
+    }
+
     let settings = ctx.state.current_settings();
     if !settings.input_enabled {
         return;
@@ -481,7 +517,11 @@ fn spawn_capture_loop(state: Arc<AppState>, frames: broadcast::Sender<Arc<Vec<u8
                     if let Ok(mut screen) = state.screen.write() {
                         *screen = (native_width, native_height);
                     }
-                    let _ = frames.send(Arc::new(jpeg));
+                    let frame = Arc::new(jpeg);
+                    if let Ok(mut latest) = state.latest_frame.write() {
+                        *latest = Some(frame.clone());
+                    }
+                    let _ = frames.send(frame);
                 }
                 Ok(Err(_)) => {
                     tokio::time::sleep(Duration::from_millis(900)).await;

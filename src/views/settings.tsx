@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Gauge, MonitorSmartphone, Palette, Power } from "lucide-react";
+import { Gauge, MonitorSmartphone, Palette, Power, RefreshCw } from "lucide-react";
 
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -12,7 +12,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { ThemeSwitcher } from "@/components/theme-switcher";
-import type { AutostartMode, Settings, ThemeMode } from "@/lib/tauri";
+import type { AutostartMode, Settings, ThemeMode, WolStatus } from "@/lib/tauri";
 
 /** Presets shared by the image select and the sliders below it. */
 const IMAGE_PRESETS: Record<
@@ -150,12 +150,23 @@ function SliderRow({
   );
 }
 
+/** Short, plain-language label for the Wake-on-LAN state. */
+function wolLabel(wol: WolStatus) {
+  if (wol.enabled) return "Aktywny";
+  if (wol.supported) return "Wyłączony w systemie";
+  return "Nieobsługiwany";
+}
+
 export function SettingsView({
   settings,
   onUpdate,
+  wol,
+  onRefreshWol,
 }: {
   settings: Settings;
   onUpdate: (patch: Partial<Settings>) => void;
+  wol: WolStatus;
+  onRefreshWol: () => void;
 }) {
   const preset = currentPreset(settings);
 
@@ -200,6 +211,37 @@ export function SettingsView({
           checked={settings.runInBackground}
           onCheckedChange={(runInBackground) => onUpdate({ runInBackground })}
         />
+
+        <div className="flex items-center justify-between gap-4 rounded-2xl bg-secondary/10 px-4 py-3.5">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">Wake-on-LAN</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {wol.enabled
+                ? "Telefon może wybudzić ten komputer."
+                : "Włącz wybudzanie w ustawieniach karty sieciowej."}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-bold ${
+                wol.enabled
+                  ? "bg-accent/15 text-accent"
+                  : "bg-card text-muted-foreground"
+              }`}
+            >
+              {wolLabel(wol)}
+            </span>
+            <button
+              type="button"
+              onClick={onRefreshWol}
+              aria-label="Sprawdź ponownie"
+              title="Sprawdź ponownie"
+              className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary/25 hover:text-foreground"
+            >
+              <RefreshCw className="size-4" />
+            </button>
+          </div>
+        </div>
       </Section>
 
       <Section icon={MonitorSmartphone} title="Połączenie">

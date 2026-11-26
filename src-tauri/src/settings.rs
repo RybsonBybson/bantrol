@@ -1,9 +1,12 @@
+use crate::power::WolStatus;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 
 /// User-facing configuration, persisted as JSON in the app config directory.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +121,7 @@ pub struct ServerStatus {
     pub devices: Vec<String>,
     pub device_name: String,
     pub saved_devices: Vec<SavedDeviceView>,
+    pub wol: WolStatus,
 }
 
 pub struct AppState {
@@ -135,6 +139,16 @@ pub struct AppState {
     pub screen: RwLock<(u32, u32)>,
     pub shutdown: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     pub frame_tx: RwLock<Option<broadcast::Sender<Arc<Vec<u8>>>>>,
+    /// Latest desktop frame, used by the phone-control window.
+    pub latest_frame: RwLock<Option<Arc<Vec<u8>>>>,
+    /// Live link to each connected phone, used to send control commands.
+    pub phone_links: Mutex<HashMap<String, mpsc::UnboundedSender<String>>>,
+    /// The screen the phone currently shows, as reported by the phone.
+    pub phone_states: RwLock<HashMap<String, Value>>,
+    /// Maps a control-window label to the phone it controls.
+    pub controllers: Mutex<HashMap<String, String>>,
+    /// Wake-on-LAN state of this computer's active adapter.
+    pub wol: RwLock<WolStatus>,
 }
 
 impl AppState {
@@ -156,6 +170,24 @@ impl AppState {
             screen: RwLock::new((1920, 1080)),
             shutdown: Mutex::new(None),
             frame_tx: RwLock::new(None),
+            latest_frame: RwLock::new(None),
+            phone_links: Mutex::new(HashMap::new()),
+            phone_states: RwLock::new(HashMap::new()),
+            controllers: Mutex::new(HashMap::new()),
+            wol: RwLock::new(WolStatus::default()),
+        }
+    }
+
+    pub fn wol(&self) -> WolStatus {
+        self.wol
+            .read()
+            .map(|value| value.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn set_wol(&self, status: WolStatus) {
+        if let Ok(mut guard) = self.wol.write() {
+            *guard = status;
         }
     }
 
@@ -214,6 +246,49 @@ impl AppState {
         if let Ok(mut devices) = self.devices.write() {
             devices.clear();
         }
+    }
+
+    /// Registers the live socket of a connected phone.
+    pub fn register_phone(&self, id: &str, sender: mpsc::UnboundedSender<String>) {
+        if let Ok(mut links) = self.phone_links.lock() {
+            links.insert(id.to_string(), sender);
+        }
+    }
+
+    pub fn unregister_phone(&self, id: &str) {
+        if let Ok(mut links) = self.phone_links.lock() {
+            links.remove(id);
+        }
+        if let Ok(mut states) = self.phone_states.write() {
+            states.remove(id);
+        }
+    }
+
+    /// Sends one JSON control message to a connected phone.
+    pub fn send_phone(&self, id: &str, message: String) -> Result<(), String> {
+        let links = self
+            .phone_links
+            .lock()
+            .map_err(|_| "Nie można odczytać stanu połączenia.".to_string())?;
+        let sender = links
+            .get(id)
+            .ok_or_else(|| "Telefon nie jest teraz połączony.".to_string())?;
+        sender
+            .send(message)
+            .map_err(|_| "Telefon nie jest teraz połączony.".to_string())
+    }
+
+    pub fn set_phone_state(&self, id: &str, state: Value) {
+        if let Ok(mut states) = self.phone_states.write() {
+            states.insert(id.to_string(), state);
+        }
+    }
+
+    pub fn phone_state(&self, id: &str) -> Option<Value> {
+        self.phone_states
+            .read()
+            .ok()
+            .and_then(|states| states.get(id).cloned())
     }
 
     /// True when the given phone is allowed to connect with a saved token.
@@ -303,15 +378,27 @@ impl AppState {
             Some(bind_address)
         };
 
+        let wol = self.wol();
+
         let pairing_link = if running {
             host.map(|host| {
-                format!(
+                let mut link = format!(
                     "bantrol://pair?host={}&port={}&code={}&name={}",
                     urlencoding::encode(&host),
                     port,
                     pairing_code,
                     urlencoding::encode(&device_name)
-                )
+                );
+                // Wake-on-LAN details travel with the pairing data, so the
+                // phone can wake the computer even after it went to sleep.
+                if let Some(mac) = &wol.mac {
+                    link.push_str(&format!("&mac={}", urlencoding::encode(mac)));
+                }
+                if let Some(broadcast) = &wol.broadcast {
+                    link.push_str(&format!("&broadcast={}", urlencoding::encode(broadcast)));
+                }
+                link.push_str(if wol.enabled { "&wol=1" } else { "&wol=0" });
+                link
             })
         } else {
             None
@@ -347,6 +434,7 @@ impl AppState {
             devices: connected,
             device_name,
             saved_devices,
+            wol,
         }
     }
 }

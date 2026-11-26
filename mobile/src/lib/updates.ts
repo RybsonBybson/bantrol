@@ -33,7 +33,7 @@ interface Release {
 }
 
 export async function checkMobileUpdate(
-  current = "0.1.0",
+  current: string,
 ): Promise<MobileUpdate | null> {
   try {
     const response = await fetch(API, {

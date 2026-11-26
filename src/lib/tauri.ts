@@ -24,6 +24,13 @@ export interface SavedDevice {
   connected: boolean;
 }
 
+export interface WolStatus {
+  supported: boolean;
+  enabled: boolean;
+  mac: string | null;
+  broadcast: string | null;
+}
+
 export interface ServerStatus {
   running: boolean;
   pairingCode: string;
@@ -32,6 +39,16 @@ export interface ServerStatus {
   devices: string[];
   deviceName: string;
   savedDevices: SavedDevice[];
+  wol: WolStatus;
+}
+
+export interface PhoneState {
+  screen?: "boot" | "pair" | "connecting" | "remote";
+  tab?: "pair" | "devices";
+  keyboard?: boolean;
+  inputEnabled?: boolean;
+  name?: string;
+  devices?: Array<{ name: string; online?: boolean }>;
 }
 
 export const defaultSettings: Settings = {
@@ -61,6 +78,7 @@ const demoStatus: ServerStatus = {
   devices: ["Pixel 9"],
   deviceName: "BANTROL-STUDIO",
   savedDevices: demoDevices,
+  wol: { supported: true, enabled: true, mac: "D8-B3-2F-5D-36-91", broadcast: "192.168.1.255" },
 };
 
 const DEMO_KEY = "bantrol.demo.settings";
@@ -104,6 +122,11 @@ export async function saveSettings(settings: Settings): Promise<ServerStatus> {
 export async function getStatus(): Promise<ServerStatus> {
   if (!isTauri()) return demoStatus;
   return invoke<ServerStatus>("get_status");
+}
+
+export async function refreshWol(): Promise<ServerStatus> {
+  if (!isTauri()) return demoStatus;
+  return invoke<ServerStatus>("refresh_wol");
 }
 
 export async function startServer(): Promise<ServerStatus> {
@@ -166,4 +189,50 @@ export async function toggleMaximize() {
 export async function closeWindow() {
   if (!isTauri()) return;
   await invoke("close_window");
+}
+
+/** The app version comes from the build, never from a hardcoded label. */
+export async function getAppVersion(): Promise<string> {
+  if (!isTauri()) return __APP_VERSION__;
+  try {
+    const { getVersion } = await import("@tauri-apps/api/app");
+    return await getVersion();
+  } catch {
+    return __APP_VERSION__;
+  }
+}
+
+export async function openPhoneWindow(deviceId: string) {
+  if (!isTauri()) return;
+  await invoke("open_phone_window", { deviceId });
+}
+
+export async function getControllerDevice(
+  label: string,
+): Promise<string | null> {
+  if (!isTauri()) return null;
+  return invoke<string | null>("get_controller_device", { label });
+}
+
+export async function sendPhoneControl(
+  deviceId: string,
+  message: Record<string, unknown>,
+) {
+  if (!isTauri()) return;
+  await invoke("send_phone_control", {
+    deviceId,
+    message: { type: "control", ...message },
+  });
+}
+
+export async function getPhoneState(
+  deviceId: string,
+): Promise<PhoneState | null> {
+  if (!isTauri()) return null;
+  return invoke<PhoneState | null>("get_phone_state", { deviceId });
+}
+
+export async function getLatestFrame(): Promise<string | null> {
+  if (!isTauri()) return null;
+  return invoke<string | null>("get_latest_frame");
 }

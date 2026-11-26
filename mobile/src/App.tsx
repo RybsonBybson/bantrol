@@ -1,39 +1,55 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   CameraOff,
-  Check,
   ChevronDown,
   Download,
   Keyboard,
   Loader2,
+  Lock,
   LogOut,
   Maximize2,
   Minimize2,
   Monitor,
+  MonitorSmartphone,
+  Moon,
   MousePointerClick,
+  Play,
+  Plus,
+  Power,
+  PowerOff,
   QrCode,
-  RefreshCw,
   RotateCcw,
+  RotateCw,
   ScanLine,
-  Smartphone,
-  Wifi,
+  Snowflake,
+  Trash2,
   WifiOff,
   X,
 } from "lucide-react";
 
-import { RemoteConnection, type ReadyInfo } from "@/lib/connection";
+import {
+  RemoteConnection,
+  sendPowerAction,
+  type ControlMessage,
+  type PowerAction,
+  type ReadyInfo,
+} from "@/lib/connection";
 import {
   deviceId,
+  deviceKey,
   discoverComputers,
-  forgetLastComputer,
   isTauri,
-  loadLastComputer,
+  loadDevices,
   parsePairingLink,
-  saveLastComputer,
-  updateLastComputerToken,
+  removeDevice,
+  saveDevice,
+  updateDeviceToken,
+  updateDeviceWol,
+  wakeComputer,
   type PairInfo,
 } from "@/lib/pairing";
 import {
@@ -42,11 +58,12 @@ import {
   type MobileUpdate,
 } from "@/lib/updates";
 
-const APP_VERSION = "0.1.0";
+const APP_VERSION = __APP_VERSION__;
 const DEMO = !isTauri();
 
 type ThemeMode = "system" | "light" | "dark";
 type Screen = "boot" | "pair" | "connecting" | "remote";
+type HomeTab = "pair" | "devices";
 type UpdateState = "idle" | "downloading" | "installing";
 
 interface Point {
@@ -427,44 +444,475 @@ function ScannerOverlay({
   );
 }
 
-function PairScreen({
-  computer,
+/** Fluid, icon-only tabs that switch between pairing and saved devices. */
+function BottomTabs({
+  tab,
+  onChange,
+}: {
+  tab: HomeTab;
+  onChange: (tab: HomeTab) => void;
+}) {
+  const items: Array<{ id: HomeTab; icon: typeof QrCode; label: string }> = [
+    { id: "pair", icon: QrCode, label: "Parowanie" },
+    { id: "devices", icon: MonitorSmartphone, label: "Urządzenia" },
+  ];
+
+  return (
+    <div className="mx-auto flex w-full max-w-xs items-center gap-1 rounded-3xl bg-card p-1.5">
+      {items.map((item) => {
+        const Icon = item.icon;
+        const active = tab === item.id;
+        return (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onChange(item.id)}
+            aria-label={item.label}
+            aria-current={active ? "page" : undefined}
+            className="relative flex h-12 flex-1 items-center justify-center rounded-2xl"
+          >
+            {active && (
+              <motion.span
+                layoutId="bottom-tab"
+                className="absolute inset-0 rounded-2xl bg-primary"
+                transition={{ type: "spring", stiffness: 380, damping: 32 }}
+              />
+            )}
+            <Icon
+              className={`relative size-5 ${
+                active ? "text-primary-foreground" : "text-muted-foreground"
+              }`}
+            />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function PairPanel({
+  scanning,
+  finding,
+  manualCode,
+  onScan,
+  onManualCodeChange,
+  onManualSubmit,
+}: {
+  scanning: boolean;
+  finding: boolean;
+  manualCode: string;
+  onScan: () => void;
+  onManualCodeChange: (value: string) => void;
+  onManualSubmit: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <motion.button
+        type="button"
+        onClick={onScan}
+        disabled={scanning}
+        whileTap={{ scale: 0.98 }}
+        className="flex items-center justify-center gap-3 rounded-3xl bg-accent px-5 py-5 text-base font-bold text-accent-foreground disabled:opacity-70"
+      >
+        {scanning ? (
+          <Loader2 className="size-5 animate-spin" />
+        ) : (
+          <QrCode className="size-5" />
+        )}
+        {scanning ? "Otwieramy aparat…" : "Zeskanuj kod QR"}
+      </motion.button>
+
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          onManualSubmit();
+        }}
+        className="rounded-3xl bg-card p-4"
+      >
+        <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+          <Keyboard className="size-3.5" />
+          Wpisz kod z komputera
+        </div>
+        <input
+          value={manualCode}
+          onChange={(event) =>
+            onManualCodeChange(
+              event.target.value.replace(/\D/g, "").slice(0, 6),
+            )
+          }
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          placeholder="000000"
+          aria-label="Kod parowania"
+          disabled={finding}
+          className="mt-3 h-14 w-full rounded-2xl bg-secondary/20 px-4 text-center text-xl font-bold tracking-[0.5em] tabular-nums outline-none placeholder:tracking-[0.5em] placeholder:text-muted-foreground/50 disabled:opacity-60"
+        />
+        <button
+          type="submit"
+          disabled={finding || manualCode.length !== 6}
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground disabled:opacity-40"
+        >
+          {finding ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Plus className="size-4" />
+          )}
+          Dodaj komputer
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function DevicesPanel({
+  devices,
+  onlineKeys,
+  onConnect,
+  onPower,
+  onForget,
+  onGoToPair,
+}: {
+  devices: PairInfo[];
+  onlineKeys: Set<string>;
+  onConnect: (device: PairInfo) => void;
+  onPower: (device: PairInfo, online: boolean) => void;
+  onForget: (device: PairInfo) => void;
+  onGoToPair: () => void;
+}) {
+  if (!devices.length) {
+    return (
+      <div className="flex flex-col items-center gap-4 rounded-3xl bg-card px-6 py-10 text-center">
+        <MonitorSmartphone className="size-9 text-muted-foreground" />
+        <p className="text-sm font-semibold">Brak zapisanych komputerów</p>
+        <button
+          type="button"
+          onClick={onGoToPair}
+          className="flex items-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-xs font-bold text-primary-foreground"
+        >
+          <QrCode className="size-4" />
+          Dodaj komputer
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <AnimatePresence initial={false}>
+        {devices.map((device) => {
+          const online = onlineKeys.has(deviceKey(device));
+          const canWake = Boolean(device.mac && device.wolEnabled);
+          return (
+            <motion.div
+              key={deviceKey(device)}
+              layout
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, x: -12 }}
+              className="flex items-center gap-2.5 rounded-3xl bg-card px-3 py-2.5"
+            >
+              <span className="relative flex size-10 shrink-0 items-center justify-center rounded-2xl bg-secondary/25">
+                <Monitor className="size-5" />
+                <span
+                  className={`absolute -right-0.5 -top-0.5 size-2.5 rounded-full border-2 border-card ${
+                    online ? "bg-accent" : "bg-muted-foreground/40"
+                  }`}
+                />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-bold">{device.name}</p>
+                <p className="truncate text-[10px] text-muted-foreground">
+                  {online ? "Online" : canWake ? "Wybudź z telefonu" : "Offline"}
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label={`Zasilanie ${device.name}`}
+                title="Zasilanie"
+                onClick={() => onPower(device, online)}
+                className={`flex size-9 shrink-0 items-center justify-center rounded-xl ${
+                  canWake
+                    ? "bg-accent/15 text-accent"
+                    : "bg-secondary/20 text-muted-foreground"
+                }`}
+              >
+                <Power className="size-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onConnect(device)}
+                className="flex shrink-0 items-center gap-1.5 rounded-xl bg-primary px-3 py-2 text-xs font-bold text-primary-foreground"
+              >
+                <Play className="size-3.5" />
+                Steruj
+              </button>
+              <button
+                type="button"
+                aria-label={`Usuń ${device.name}`}
+                title="Usuń"
+                onClick={() => onForget(device)}
+                className="flex size-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            </motion.div>
+          );
+        })}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+const POWER_ACTIONS: Array<{
+  action: PowerAction;
+  label: string;
+  icon: typeof Power;
+  confirm: boolean;
+  danger?: boolean;
+}> = [
+  { action: "sleep", label: "Uśpij", icon: Moon, confirm: false },
+  { action: "hibernate", label: "Hibernacja", icon: Snowflake, confirm: true },
+  { action: "restart", label: "Restart", icon: RotateCw, confirm: true, danger: true },
+  { action: "shutdown", label: "Wyłącz", icon: PowerOff, confirm: true, danger: true },
+  { action: "lock", label: "Zablokuj", icon: Lock, confirm: false },
+];
+
+const POWER_QUESTION: Record<PowerAction, string> = {
+  sleep: "Uśpić komputer?",
+  shutdown: "Wyłączyć komputer?",
+  restart: "Zrestartować komputer?",
+  hibernate: "Włączyć hibernację?",
+  lock: "Zablokować ekran?",
+};
+
+function PowerSheet({
+  device,
+  online,
+  onClose,
+  onWake,
+  onPower,
+  onForget,
+}: {
+  device: PairInfo;
+  online: boolean;
+  onClose: () => void;
+  onWake: () => Promise<void>;
+  onPower: (action: PowerAction) => Promise<void>;
+  onForget: () => void;
+}) {
+  const reduce = useReducedMotion();
+  const [confirming, setConfirming] = useState<PowerAction | null>(null);
+  const [pending, setPending] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  const canWake = Boolean(device.mac && device.wolEnabled);
+
+  async function wake() {
+    setPending(true);
+    setFailed(null);
+    try {
+      await onWake();
+      setNotice("Wysłano pakiet wybudzający.");
+    } catch {
+      setFailed("Nie udało się wybudzić komputera.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function run(action: PowerAction) {
+    setPending(true);
+    setFailed(null);
+    try {
+      await onPower(action);
+      setConfirming(null);
+      setNotice("Wysłano do komputera.");
+      window.setTimeout(onClose, 800);
+    } catch {
+      setFailed("Nie udało się wykonać akcji.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 px-3 pb-3 safe-bottom"
+    >
+      <motion.div
+        initial={reduce ? undefined : { y: 60, opacity: 0.4 }}
+        animate={reduce ? undefined : { y: 0, opacity: 1 }}
+        exit={reduce ? undefined : { y: 60, opacity: 0 }}
+        transition={{ type: "spring", stiffness: 320, damping: 32 }}
+        onClick={(event) => event.stopPropagation()}
+        className="w-full max-w-md rounded-3xl bg-card p-4"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-bold">{device.name}</p>
+            <p className="text-[11px] text-muted-foreground">
+              {online ? "Komputer online" : "Zasilanie i wybudzanie"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Zamknij"
+            className="flex size-9 items-center justify-center rounded-xl bg-secondary/20 text-muted-foreground"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => void wake()}
+          disabled={!canWake || pending}
+          className={`mt-4 flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-sm font-bold disabled:opacity-45 ${
+            canWake
+              ? "bg-accent text-accent-foreground"
+              : "bg-secondary/20 text-muted-foreground"
+          }`}
+        >
+          <Power className="size-4" />
+          Włącz / Wybudź
+        </button>
+        {!canWake && (
+          <p className="mt-2 text-center text-[11px] text-muted-foreground">
+            Włącz Wake-on-LAN na komputerze, aby budzić go z telefonu.
+          </p>
+        )}
+
+        {online ? (
+          confirming ? (
+            <div className="mt-3 rounded-2xl bg-destructive/10 p-3">
+              <p className="flex items-center gap-2 text-xs font-semibold">
+                <AlertTriangle className="size-4 text-accent" />
+                {POWER_QUESTION[confirming]}
+              </p>
+              <div className="mt-2.5 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void run(confirming)}
+                  disabled={pending}
+                  className="flex-1 rounded-xl bg-accent py-2.5 text-xs font-bold text-accent-foreground disabled:opacity-50"
+                >
+                  Tak, wykonaj
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirming(null)}
+                  className="flex-1 rounded-xl bg-secondary/20 py-2.5 text-xs font-bold"
+                >
+                  Anuluj
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {POWER_ACTIONS.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.action}
+                    type="button"
+                    onClick={() =>
+                      item.confirm ? setConfirming(item.action) : void run(item.action)
+                    }
+                    disabled={pending}
+                    className={`flex items-center gap-2 rounded-2xl px-3 py-3 text-xs font-bold disabled:opacity-50 ${
+                      item.danger
+                        ? "bg-destructive/10 text-accent"
+                        : "bg-secondary/15 text-foreground"
+                    }`}
+                  >
+                    <Icon className="size-4" />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+          )
+        ) : (
+          <p className="mt-3 rounded-2xl bg-secondary/10 px-4 py-3 text-center text-[11px] text-muted-foreground">
+            Uśpienie i wyłączenie są dostępne, gdy komputer jest online.
+          </p>
+        )}
+
+        {notice && (
+          <p className="mt-3 text-center text-[11px] font-semibold text-accent">
+            {notice}
+          </p>
+        )}
+        {failed && (
+          <p className="mt-3 text-center text-[11px] font-semibold text-accent">
+            {failed}
+          </p>
+        )}
+
+        <button
+          type="button"
+          onClick={onForget}
+          className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-secondary/10 py-2.5 text-xs font-bold text-muted-foreground"
+        >
+          <Trash2 className="size-3.5" />
+          Usuń komputer
+        </button>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function HomeScreen({
+  tab,
+  devices,
+  error,
   update,
   updateState,
   updateProgress,
-  error,
   scanning,
   finding,
   manualCode,
   theme,
   version,
   onThemeChange,
+  onTabChange,
   onScan,
   onManualCodeChange,
   onManualSubmit,
   onInstallUpdate,
-  onReconnect,
+  onConnect,
+  onPower,
   onForget,
+  onlineKeys,
   onDismissError,
   onDemo,
 }: {
-  computer: PairInfo | null;
+  tab: HomeTab;
+  devices: PairInfo[];
+  error: string | null;
   update: MobileUpdate | null;
   updateState: UpdateState;
   updateProgress: number;
-  error: string | null;
   scanning: boolean;
   finding: boolean;
   manualCode: string;
   theme: ThemeMode;
   version: string;
   onThemeChange: (mode: ThemeMode) => void;
+  onTabChange: (tab: HomeTab) => void;
   onScan: () => void;
   onManualCodeChange: (value: string) => void;
   onManualSubmit: () => void;
   onInstallUpdate: () => void;
-  onReconnect: () => void;
-  onForget: () => void;
+  onConnect: (device: PairInfo) => void;
+  onPower: (device: PairInfo, online: boolean) => void;
+  onForget: (device: PairInfo) => void;
+  onlineKeys: Set<string>;
   onDismissError: () => void;
   onDemo: () => void;
 }) {
@@ -472,7 +920,7 @@ function PairScreen({
 
   return (
     <motion.div
-      key="pair"
+      key="home"
       initial={reduce ? undefined : { opacity: 0, y: 12 }}
       animate={reduce ? undefined : { opacity: 1, y: 0 }}
       exit={reduce ? undefined : { opacity: 0, y: -10 }}
@@ -492,213 +940,111 @@ function PairScreen({
           />
         </div>
 
-        <div className="flex flex-1 flex-col justify-center gap-8 py-10 landscape:grid landscape:grid-cols-[1.05fr_0.95fr] landscape:items-center landscape:gap-8 landscape:py-6">
-          <div>
+        <div className="flex flex-1 flex-col justify-center gap-4 py-6">
+          <AnimatePresence>
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                className="flex items-start gap-3 rounded-2xl bg-accent/15 px-4 py-3 text-sm font-semibold text-accent"
+              >
+                <span className="min-w-0 flex-1">{error}</span>
+                <button
+                  type="button"
+                  aria-label="Zamknij komunikat"
+                  onClick={onDismissError}
+                >
+                  <X className="size-4" />
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {update && (
             <motion.div
-              initial={reduce ? undefined : { opacity: 0, scale: 0.92 }}
-              animate={reduce ? undefined : { opacity: 1, scale: 1 }}
-              transition={{ delay: 0.05, type: "spring", stiffness: 180, damping: 20 }}
-              className="relative mx-auto flex size-44 items-center justify-center rounded-[2.5rem] bg-card landscape:size-36"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-center gap-3 rounded-2xl bg-primary/10 p-4"
             >
-              <span className="absolute inset-5 rounded-[2rem] bg-secondary/20" />
-              <motion.span
-                className="absolute inset-8 rounded-full bg-primary/10"
-                animate={
-                  reduce
-                    ? undefined
-                    : { scale: [0.9, 1.08, 0.9], opacity: [0.7, 0.25, 0.7] }
-                }
-                transition={{ duration: 2.8, repeat: Infinity, ease: "easeInOut" }}
-              />
-              <div className="relative flex flex-col items-center gap-2">
-                <Smartphone className="size-14 text-primary" />
-                <span className="flex items-center gap-1.5 rounded-full bg-primary px-3 py-1 text-[10px] font-semibold text-primary-foreground">
-                  <Wifi className="size-3" />
-                  Gotowy
-                </span>
-              </div>
-            </motion.div>
-
-            <div className="mt-7 text-center landscape:text-left">
-              <h1 className="text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
-                Twój komputer
-                <br />
-                pod ręką.
-              </h1>
-              <p className="mx-auto mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground landscape:mx-0">
-                Zeskanuj kod QR z ekranu komputera albo wpisz kod parowania.
-                Bez kabli, kont i chmury.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-3">
-            <AnimatePresence>
-              {error && (
-                <motion.div
-                  initial={{ opacity: 0, y: -6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  className="flex items-start gap-3 rounded-2xl bg-accent/15 px-4 py-3 text-sm font-semibold text-accent"
-                >
-                  <span className="min-w-0 flex-1">{error}</span>
-                  <button
-                    type="button"
-                    aria-label="Zamknij komunikat"
-                    onClick={onDismissError}
-                  >
-                    <X className="size-4" />
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {update && (
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex items-center gap-3 rounded-2xl bg-primary/10 p-4"
-              >
-                <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-                  {updateState === "idle" ? (
-                    <Download className="size-5" />
-                  ) : (
-                    <Loader2 className="size-5 animate-spin" />
-                  )}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold">Nowa wersja {update.version}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {updateState === "downloading"
-                      ? `Pobieranie… ${updateProgress}%`
-                      : updateState === "installing"
-                        ? "Uruchamiam instalator…"
-                        : "Pobierz i zainstaluj najnowszą wersję."}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={onInstallUpdate}
-                  disabled={updateState !== "idle"}
-                  className="shrink-0 rounded-xl bg-card px-3 py-2 text-xs font-bold disabled:opacity-50"
-                >
-                  Zaktualizuj
-                </button>
-              </motion.div>
-            )}
-
-            <motion.button
-              type="button"
-              onClick={onScan}
-              disabled={scanning}
-              whileTap={{ scale: 0.98 }}
-              className="flex items-center justify-center gap-3 rounded-3xl bg-accent px-5 py-5 text-base font-bold text-accent-foreground disabled:opacity-70"
-            >
-              {scanning ? (
-                <Loader2 className="size-5 animate-spin" />
-              ) : (
-                <QrCode className="size-5" />
-              )}
-              {scanning ? "Otwieramy aparat…" : "Zeskanuj kod QR"}
-            </motion.button>
-
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                onManualSubmit();
-              }}
-              className="rounded-3xl bg-card p-4"
-            >
-              <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-                <Keyboard className="size-3.5" />
-                Wpisz kod z komputera
-              </div>
-              <input
-                value={manualCode}
-                onChange={(event) =>
-                  onManualCodeChange(
-                    event.target.value.replace(/\D/g, "").slice(0, 6),
-                  )
-                }
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                placeholder="000000"
-                aria-label="Kod parowania"
-                disabled={finding}
-                className="mt-3 h-14 w-full rounded-2xl bg-secondary/20 px-4 text-center text-xl font-bold tracking-[0.5em] tabular-nums outline-none placeholder:tracking-[0.5em] placeholder:text-muted-foreground/50 disabled:opacity-60"
-              />
-              <div className="mt-2 flex h-5 items-center justify-center gap-2 text-[11px] text-muted-foreground">
-                {finding ? (
-                  <>
-                    <Loader2 className="size-3.5 animate-spin" />
-                    Szukamy komputera…
-                  </>
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+                {updateState === "idle" ? (
+                  <Download className="size-5" />
                 ) : (
-                  "Połączymy automatycznie po wpisaniu 6 cyfr."
+                  <Loader2 className="size-5 animate-spin" />
                 )}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold">Nowa wersja {update.version}</p>
+                <p className="text-xs text-muted-foreground">
+                  {updateState === "downloading"
+                    ? `Pobieranie… ${updateProgress}%`
+                    : updateState === "installing"
+                      ? "Uruchamiamy instalator…"
+                      : "Pobierz i zainstaluj najnowszą wersję."}
+                </p>
               </div>
-            </form>
-
-            {computer && (
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="rounded-3xl bg-card p-4"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-secondary/25">
-                    <Monitor className="size-5" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      Ostatni komputer
-                    </p>
-                    <p className="truncate text-sm font-bold">{computer.name}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={onForget}
-                    className="text-[11px] font-semibold text-muted-foreground underline-offset-4 hover:underline"
-                  >
-                    Zapomnij
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={onReconnect}
-                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground"
-                >
-                  <RefreshCw className="size-4" />
-                  Połącz ponownie
-                </button>
-              </motion.div>
-            )}
-
-            <div className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
-              <Check className="size-3.5" />
-              Tylko Twoje urządzenia
-              <span className="mx-1 opacity-40">·</span>
-              Bez konta
-            </div>
-
-            {DEMO && (
               <button
                 type="button"
-                onClick={onDemo}
-                className="mx-auto text-[11px] font-semibold text-muted-foreground underline-offset-4 hover:underline"
+                onClick={onInstallUpdate}
+                disabled={updateState !== "idle"}
+                className="shrink-0 rounded-xl bg-card px-3 py-2 text-xs font-bold disabled:opacity-50"
               >
-                Podgląd interfejsu
+                Zaktualizuj
               </button>
-            )}
-          </div>
+            </motion.div>
+          )}
+
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={tab}
+              initial={reduce ? undefined : { opacity: 0, y: 8 }}
+              animate={reduce ? undefined : { opacity: 1, y: 0 }}
+              exit={reduce ? undefined : { opacity: 0, y: -8 }}
+              transition={{ duration: 0.18 }}
+            >
+              {tab === "pair" ? (
+                <PairPanel
+                  scanning={scanning}
+                  finding={finding}
+                  manualCode={manualCode}
+                  onScan={onScan}
+                  onManualCodeChange={onManualCodeChange}
+                  onManualSubmit={onManualSubmit}
+                />
+              ) : (
+                <DevicesPanel
+                  devices={devices}
+                  onlineKeys={onlineKeys}
+                  onConnect={onConnect}
+                  onPower={onPower}
+                  onForget={onForget}
+                  onGoToPair={() => onTabChange("pair")}
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
+
+          {DEMO && (
+            <button
+              type="button"
+              onClick={onDemo}
+              className="mx-auto text-[11px] font-semibold text-muted-foreground underline-offset-4 hover:underline"
+            >
+              Podgląd interfejsu
+            </button>
+          )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 pb-2 text-[11px] text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5">
-            <ScanLine className="size-3.5" />
-            Skaner działa tylko w aplikacji
-          </span>
-          <span>wersja {version}</span>
+        <div className="flex flex-col gap-3 pb-2">
+          <BottomTabs tab={tab} onChange={onTabChange} />
+          <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5">
+              <ScanLine className="size-3.5" />
+              Skaner działa tylko w aplikacji
+            </span>
+            <span>wersja {version}</span>
+          </div>
         </div>
       </div>
     </motion.div>
@@ -759,6 +1105,7 @@ function RemoteScreen({
   onToggleKeyboard,
   onDisconnect,
   onFullscreen,
+  onPower,
   onMove,
   onClick,
   onRightClick,
@@ -780,6 +1127,7 @@ function RemoteScreen({
   onToggleKeyboard: () => void;
   onDisconnect: () => void;
   onFullscreen: () => void;
+  onPower: () => void;
   onMove: (x: number, y: number) => void;
   onClick: (x: number, y: number) => void;
   onRightClick: (x: number, y: number) => void;
@@ -802,7 +1150,7 @@ function RemoteScreen({
 
   const pointers = useRef(new Map<number, Point>());
   const gesture = useRef({
-    mode: "none" as "none" | "cursor" | "pan",
+    mode: "none" as "none" | "cursor",
     startCount: 0,
     startX: 0,
     startY: 0,
@@ -812,8 +1160,6 @@ function RemoteScreen({
     startZoom: 1,
     lastMidX: 0,
     lastMidY: 0,
-    startPanX: 0,
-    startPanY: 0,
   });
   const scrollAcc = useRef<Point>({ x: 0, y: 0 });
 
@@ -856,6 +1202,18 @@ function RemoteScreen({
     panRef.current = { x: 0, y: 0 };
   }
 
+  function panBy(dx: number, dy: number) {
+    const size = displayRef.current;
+    const maxX = (size.width * (zoomRef.current - 1)) / 2;
+    const maxY = (size.height * (zoomRef.current - 1)) / 2;
+    const next = {
+      x: clamp(panRef.current.x + dx, -maxX, maxX),
+      y: clamp(panRef.current.y + dy, -maxY, maxY),
+    };
+    panRef.current = next;
+    setPan(next);
+  }
+
   function pointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (!inputEnabled) return;
     event.preventDefault();
@@ -869,24 +1227,20 @@ function RemoteScreen({
     const now = performance.now();
 
     if (pointers.current.size === 1) {
+      // One finger always drives the remote cursor, zoomed in or not.
       state.startCount = 1;
-      state.mode = zoomRef.current > 1.02 ? "pan" : "cursor";
+      state.mode = "cursor";
       state.startX = event.clientX;
       state.startY = event.clientY;
       state.startTime = now;
       state.moved = false;
-      state.startPanX = panRef.current.x;
-      state.startPanY = panRef.current.y;
     } else if (pointers.current.size === 2) {
       const [first, second] = Array.from(pointers.current.values());
       state.startCount = 2;
       state.mode = "none";
       state.startX = (first.x + second.x) / 2;
       state.startY = (first.y + second.y) / 2;
-      state.startDist = Math.hypot(
-        first.x - second.x,
-        first.y - second.y,
-      );
+      state.startDist = Math.hypot(first.x - second.x, first.y - second.y);
       state.startZoom = zoomRef.current;
       state.lastMidX = (first.x + second.x) / 2;
       state.lastMidY = (first.y + second.y) / 2;
@@ -910,6 +1264,7 @@ function RemoteScreen({
       const midY = (first.y + second.y) / 2;
       const distance = Math.hypot(first.x - second.x, first.y - second.y);
 
+      // Pinch is the dedicated zoom gesture.
       if (
         state.startDist > 0 &&
         Math.abs(distance / state.startDist - 1) > 0.08
@@ -926,19 +1281,27 @@ function RemoteScreen({
           setPan({ x: 0, y: 0 });
         }
         state.moved = true;
+        state.lastMidX = midX;
+        state.lastMidY = midY;
+        return;
+      }
+
+      const dx = midX - state.lastMidX;
+      const dy = midY - state.lastMidY;
+
+      if (zoomRef.current > 1.02) {
+        // Two-finger drag pans, but only while zoomed in.
+        panBy(dx, dy);
+        state.moved = true;
       } else {
-        const dx = midX - state.lastMidX;
-        const dy = midY - state.lastMidY;
-        if (Math.abs(dx) + Math.abs(dy) > 0.4) {
-          scrollAcc.current.x += dx;
-          scrollAcc.current.y += dy;
-          if (
-            Math.abs(scrollAcc.current.x) >= 8 ||
-            Math.abs(scrollAcc.current.y) >= 8
-          ) {
-            onScroll(-scrollAcc.current.x * 4, -scrollAcc.current.y * 4);
-            scrollAcc.current = { x: 0, y: 0 };
-          }
+        scrollAcc.current.x += dx;
+        scrollAcc.current.y += dy;
+        if (
+          Math.abs(scrollAcc.current.x) >= 8 ||
+          Math.abs(scrollAcc.current.y) >= 8
+        ) {
+          onScroll(-scrollAcc.current.x * 4, -scrollAcc.current.y * 4);
+          scrollAcc.current = { x: 0, y: 0 };
         }
         if (Math.hypot(midX - state.startX, midY - state.startY) > 10) {
           state.moved = true;
@@ -959,17 +1322,7 @@ function RemoteScreen({
       state.moved = true;
     }
 
-    if (state.mode === "pan" && zoomRef.current > 1.02) {
-      const size = displayRef.current;
-      const maxX = (size.width * (zoomRef.current - 1)) / 2;
-      const maxY = (size.height * (zoomRef.current - 1)) / 2;
-      const next = {
-        x: clamp(panRef.current.x + dx, -maxX, maxX),
-        y: clamp(panRef.current.y + dy, -maxY, maxY),
-      };
-      panRef.current = next;
-      setPan(next);
-    } else if (state.mode === "cursor") {
+    if (state.mode === "cursor") {
       const size = displayRef.current;
       const speed = 1.7;
       const next = {
@@ -1008,9 +1361,6 @@ function RemoteScreen({
       state.startDist = 0;
       scrollAcc.current = { x: 0, y: 0 };
     } else if (pointers.current.size === 1) {
-      // One finger lifted from a two-finger gesture: do not jump the cursor,
-      // but remember that the gesture started with two fingers so the last
-      // lift is still treated as a right-click.
       state.mode = "none";
       state.startDist = 0;
     }
@@ -1250,6 +1600,9 @@ function RemoteScreen({
           <ArrowDown className="size-5" />
         </ControlButton>
         <div className="mx-1 h-7 w-px shrink-0 bg-[#2a323f]" />
+        <ControlButton label="Zasilanie" onClick={onPower}>
+          <Power className="size-5" />
+        </ControlButton>
         <ControlButton
           label={fullscreenOn ? "Wyjdź z pełnego ekranu" : "Pełny ekran"}
           onClick={onFullscreen}
@@ -1306,9 +1659,9 @@ function ControlButton({
 export default function App() {
   const { theme, setTheme } = useMobileTheme();
   const [screen, setScreen] = useState<Screen>("boot");
-  const [computer, setComputer] = useState<PairInfo | null>(() =>
-    loadLastComputer(),
-  );
+  const [tab, setTab] = useState<HomeTab>("pair");
+  const [devices, setDevices] = useState<PairInfo[]>(() => loadDevices());
+  const [computer, setComputer] = useState<PairInfo | null>(null);
   const [update, setUpdate] = useState<MobileUpdate | null>(null);
   const [updateState, setUpdateState] = useState<UpdateState>("idle");
   const [updateProgress, setUpdateProgress] = useState(0);
@@ -1329,10 +1682,24 @@ export default function App() {
   } | null>(null);
   const [demo, setDemo] = useState(false);
   const [appVersion, setAppVersion] = useState(APP_VERSION);
+  const [onlineKeys, setOnlineKeys] = useState<Set<string>>(new Set());
+  const [powerSheet, setPowerSheet] = useState<{
+    device: PairInfo;
+    online: boolean;
+  } | null>(null);
   const connection = useRef(new RemoteConnection());
-  const autoSubmitted = useRef("");
   const draftRef = useRef("");
   const name = useMemo(phoneName, []);
+
+  // Latest values for callbacks registered once (control + back button).
+  const screenRef = useRef(screen);
+  screenRef.current = screen;
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  const keyboardRef = useRef(showKeyboard);
+  keyboardRef.current = showKeyboard;
+  const controlRef = useRef<(message: ControlMessage) => void>(() => {});
+  const backRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     let cancelled = false;
@@ -1372,13 +1739,76 @@ export default function App() {
     return () => document.removeEventListener("fullscreenchange", listener);
   }, []);
 
-  // A complete code connects right away; there is no separate confirm button.
+  // Android hardware/gesture back: close the keyboard, then leave the remote
+  // view, then step back through tabs, and only then exit the app.
   useEffect(() => {
-    if (screen !== "pair" || manualCode.length !== 6) return;
-    if (autoSubmitted.current === manualCode) return;
-    autoSubmitted.current = manualCode;
-    void connectWithCode();
-  }, [manualCode, screen]);
+    if (!isTauri()) return;
+    let unregister: (() => void) | undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { onBackButtonPress } = await import("@tauri-apps/api/app");
+        const listener = await onBackButtonPress(() => backRef.current());
+        if (cancelled) void listener.unregister();
+        else unregister = () => void listener.unregister();
+      } catch {
+        // Older Android builds simply keep the default behaviour.
+      }
+    })();
+    return () => {
+      cancelled = true;
+      unregister?.();
+    };
+  }, []);
+
+  // Report the current screen to the desktop so its control window can mirror
+  // what the phone shows.
+  useEffect(() => {
+    if (screen !== "remote" || !connection.current.connected) return;
+    connection.current.state({
+      screen: "remote",
+      tab,
+      keyboard: showKeyboard,
+      inputEnabled,
+      name,
+      devices: devices.map((device) => ({
+        name: device.name,
+        online: computer ? deviceKey(device) === deviceKey(computer) : false,
+      })),
+    });
+  }, [screen, tab, showKeyboard, inputEnabled, ready, devices, computer, name]);
+
+  // While the devices tab is open, ask the local network which saved computers
+  // are switched on, so power actions are only offered for online machines.
+  useEffect(() => {
+    if (screen !== "pair" || tab !== "devices" || demo) return;
+    let alive = true;
+    const check = async () => {
+      const found = await discoverComputers();
+      if (!alive) return;
+      setOnlineKeys(
+        new Set(found.map((item) => `${item.host}:${item.port}`)),
+      );
+    };
+    void check();
+    const timer = window.setInterval(() => void check(), 8000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [screen, tab, demo]);
+
+  async function powerAction(device: PairInfo, action: PowerAction) {
+    const connected =
+      screenRef.current === "remote" && computer
+        ? deviceKey(computer) === deviceKey(device)
+        : false;
+    if (connected) {
+      connection.current.power(action);
+      return;
+    }
+    await sendPowerAction(device, name, action);
+  }
 
   function connect(info: PairInfo) {
     setError(null);
@@ -1390,22 +1820,15 @@ export default function App() {
     draftRef.current = "";
     setDraft("");
 
-    // Keep the phone id and, when reconnecting to the same computer, its token
-    // so the desktop can recognise us without a fresh pairing code.
-    const previous = loadLastComputer();
-    const sameComputer =
-      previous && previous.host === info.host && previous.port === info.port;
-    const merged: PairInfo = {
-      ...info,
-      deviceId: info.deviceId ?? deviceId(),
-      token: info.token ?? (sameComputer ? previous?.token : undefined),
-    };
-    saveLastComputer(merged);
+    const merged: PairInfo = { ...info, deviceId: info.deviceId ?? deviceId() };
+    const key = deviceKey(merged);
+    setDevices(saveDevice(merged));
     setComputer(merged);
 
     connection.current.connect(merged, name, {
       onReady: (infoReady) => {
-        if (infoReady.token) updateLastComputerToken(infoReady.token);
+        if (infoReady.token) setDevices(updateDeviceToken(key, infoReady.token));
+        if (infoReady.wol) setDevices(updateDeviceWol(key, infoReady.wol));
         setReady(infoReady);
         setInputEnabled(infoReady.inputEnabled);
         setScreen("remote");
@@ -1417,15 +1840,74 @@ export default function App() {
       },
       onClose: () => {
         setScreen("pair");
-        setError("Połączenie zostało zakończone. Zeskanuj kod ponownie.");
+        setError("Połączenie zakończone. Wybierz urządzenie i połącz ponownie.");
       },
+      onControl: (message) => controlRef.current(message),
     });
   }
 
+  function disconnect() {
+    connection.current.close();
+    setScreen("pair");
+    setReady(null);
+    setFrameUrl(null);
+    setShowKeyboard(false);
+    setPowerSheet(null);
+    setDraft("");
+    draftRef.current = "";
+  }
+
+  function handleBack() {
+    if (screenRef.current === "remote") {
+      if (keyboardRef.current) {
+        setShowKeyboard(false);
+        return;
+      }
+      disconnect();
+      return;
+    }
+    if (tabRef.current === "devices") {
+      setTab("pair");
+      return;
+    }
+    void (async () => {
+      if (!isTauri()) return;
+      try {
+        const { exit } = await import("@tauri-apps/api/app");
+        await exit(0);
+      } catch {
+        // Ignore: the WebView keeps running.
+      }
+    })();
+  }
+  backRef.current = handleBack;
+
+  function handleControl(message: ControlMessage) {
+    if (message.action === "tab") {
+      if (screenRef.current === "remote") disconnect();
+      setTab(message.value);
+      return;
+    }
+    if (message.action === "keyboard") {
+      setShowKeyboard((value) => !value);
+      return;
+    }
+    if (message.action === "back") {
+      handleBack();
+      return;
+    }
+    if (message.action === "tap") {
+      connection.current.pointer("click", message.x, message.y, "left");
+      return;
+    }
+    if (message.action === "text") {
+      connection.current.text(message.text);
+    }
+  }
+  controlRef.current = handleControl;
+
   function changeManualCode(value: string) {
-    const clean = value.replace(/\D/g, "").slice(0, 6);
-    if (clean.length < 6) autoSubmitted.current = "";
-    setManualCode(clean);
+    setManualCode(value.replace(/\D/g, "").slice(0, 6));
   }
 
   function scan() {
@@ -1437,8 +1919,6 @@ export default function App() {
     setScanning(true);
     void (async () => {
       try {
-        // Ask for the Android camera permission before the WebView camera
-        // preview starts; the native plugin owns the runtime permission.
         const plugin = await import("@tauri-apps/plugin-barcode-scanner");
         const permission = await plugin.checkPermissions();
         if (permission !== "granted") {
@@ -1452,7 +1932,6 @@ export default function App() {
         }
         setScannerOpen(true);
       } catch {
-        // The overlay reports camera problems and offers the native fallback.
         setScannerOpen(true);
       } finally {
         setScanning(false);
@@ -1467,7 +1946,9 @@ export default function App() {
       setError("To nie jest kod Bantrola. Zeskanuj kod z ekranu komputera.");
       return;
     }
-    connect(info);
+    setDevices(saveDevice(info));
+    setTab("devices");
+    setError(null);
   }
 
   async function nativeScan() {
@@ -1492,12 +1973,7 @@ export default function App() {
         windowed: true,
         formats: [plugin.Format.QRCode],
       });
-      const info = parsePairingLink(result.content);
-      if (!info) {
-        setError("To nie jest kod Bantrola. Zeskanuj kod z ekranu komputera.");
-        return;
-      }
-      connect(info);
+      handleScanResult(result.content);
     } catch {
       setError(
         "Nie udało się otworzyć aparatu. Sprawdź uprawnienia i spróbuj ponownie.",
@@ -1507,19 +1983,18 @@ export default function App() {
     }
   }
 
-  async function connectWithCode() {
-    if (finding) return;
+  async function addFromCode() {
     const clean = manualCode.replace(/\D/g, "").slice(0, 6);
-    if (clean.length !== 6) return;
+    if (clean.length !== 6 || finding) return;
 
     setError(null);
     setFinding(true);
     try {
-      const last = loadLastComputer();
-      let target: PairInfo | null = last;
+      let target: PairInfo | null =
+        devices.length > 0 ? devices[devices.length - 1] : null;
 
       // A fresh install has no saved computer, so ask the local network where
-      // Bantrol is running. Later logins use the remembered address instantly.
+      // Bantrol is running.
       if (!target) {
         const found = await discoverComputers();
         if (!found.length) {
@@ -1537,12 +2012,24 @@ export default function App() {
         };
       }
 
+      setDevices(saveDevice({ ...target, code: clean, token: undefined }));
       setManualCode("");
-      autoSubmitted.current = "";
-      connect({ ...target, code: clean, token: undefined });
+      setTab("devices");
     } finally {
       setFinding(false);
     }
+  }
+
+  function forget(device: PairInfo) {
+    setDevices(removeDevice(deviceKey(device)));
+    setPowerSheet((current) =>
+      current && deviceKey(current.device) === deviceKey(device) ? null : current,
+    );
+  }
+
+  async function wake(device: PairInfo) {
+    await wakeComputer(device);
+    setDevices(loadDevices());
   }
 
   async function installUpdate() {
@@ -1560,16 +2047,6 @@ export default function App() {
     } finally {
       window.setTimeout(() => setUpdateState("idle"), 1500);
     }
-  }
-
-  function disconnect() {
-    connection.current.close();
-    setScreen("pair");
-    setReady(null);
-    setFrameUrl(null);
-    setShowKeyboard(false);
-    draftRef.current = "";
-    setDraft("");
   }
 
   function move(x: number, y: number) {
@@ -1643,29 +2120,28 @@ export default function App() {
       <AnimatePresence mode="wait">
         {screen === "boot" && <BootScreen />}
         {screen === "pair" && (
-          <PairScreen
-            computer={computer}
+          <HomeScreen
+            tab={tab}
+            devices={devices}
+            error={error}
             update={update}
             updateState={updateState}
             updateProgress={updateProgress}
-            error={error}
             scanning={scanning}
             finding={finding}
             manualCode={manualCode}
             theme={theme}
             version={appVersion}
             onThemeChange={setTheme}
+            onTabChange={setTab}
             onScan={scan}
             onManualCodeChange={changeManualCode}
-            onManualSubmit={() => void connectWithCode()}
+            onManualSubmit={() => void addFromCode()}
             onInstallUpdate={() => void installUpdate()}
-            onReconnect={() => {
-              if (computer) connect(computer);
-            }}
-            onForget={() => {
-              forgetLastComputer();
-              setComputer(null);
-            }}
+            onConnect={connect}
+            onPower={(device, online) => setPowerSheet({ device, online })}
+            onForget={forget}
+            onlineKeys={onlineKeys}
             onDismissError={() => setError(null)}
             onDemo={demoMode}
           />
@@ -1698,6 +2174,9 @@ export default function App() {
             onToggleKeyboard={() => setShowKeyboard((value) => !value)}
             onDisconnect={disconnect}
             onFullscreen={() => void fullscreen()}
+            onPower={() =>
+              computer && setPowerSheet({ device: computer, online: true })
+            }
             onMove={move}
             onClick={click}
             onRightClick={rightClick}
@@ -1715,6 +2194,19 @@ export default function App() {
             onResult={handleScanResult}
             onClose={() => setScannerOpen(false)}
             onFallback={() => void nativeScan()}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {powerSheet && (
+          <PowerSheet
+            device={powerSheet.device}
+            online={powerSheet.online}
+            onClose={() => setPowerSheet(null)}
+            onWake={() => wake(powerSheet.device)}
+            onPower={(action) => powerAction(powerSheet.device, action)}
+            onForget={() => forget(powerSheet.device)}
           />
         )}
       </AnimatePresence>

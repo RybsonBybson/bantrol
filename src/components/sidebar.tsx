@@ -1,4 +1,4 @@
-import { LayoutDashboard, Settings2 } from "lucide-react";
+import { LayoutDashboard, Settings2, Smartphone } from "lucide-react";
 import { motion } from "framer-motion";
 
 import { Brand } from "@/components/brand";
@@ -8,6 +8,7 @@ import type { ThemeMode } from "@/lib/tauri";
 
 const navItems = [
   { id: "dashboard", label: "Pulpit", icon: LayoutDashboard },
+  { id: "phones", label: "Telefony", icon: Smartphone },
   { id: "settings", label: "Ustawienia", icon: Settings2 },
 ] as const;
 
@@ -18,11 +19,13 @@ export function Sidebar({
   onNavigate,
   theme,
   onThemeChange,
+  version,
 }: {
   view: View;
   onNavigate: (view: View) => void;
   theme: ThemeMode;
   onThemeChange: (theme: ThemeMode) => void;
+  version: string;
 }) {
   return (
     <aside className="hidden h-full w-[248px] shrink-0 flex-col gap-8 overflow-y-auto rounded-3xl bg-card p-5 md:flex">
@@ -61,7 +64,9 @@ export function Sidebar({
 
       <div className="mt-auto flex flex-col gap-4">
         <ThemeSwitcher value={theme} onChange={onThemeChange} />
-        <p className="px-1 text-[11px] text-muted-foreground">Bantrol 0.1.0</p>
+        <p className="px-1 text-[11px] text-muted-foreground">
+          Bantrol {version || "—"}
+        </p>
       </div>
     </aside>
   );

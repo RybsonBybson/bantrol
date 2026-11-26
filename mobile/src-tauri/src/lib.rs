@@ -93,13 +93,76 @@ fn discover_blocking() -> Vec<DiscoveredComputer> {
     found
 }
 
+/// Sends a Wake-on-LAN Magic Packet to a computer on the local network.
+#[tauri::command]
+async fn send_wol(
+    mac: String,
+    broadcast: Option<String>,
+    port: Option<u16>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        wol_blocking(&mac, broadcast.as_deref(), port.unwrap_or(9))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn wol_blocking(mac: &str, broadcast: Option<&str>, port: u16) -> Result<(), String> {
+    let cleaned: String = mac
+        .chars()
+        .filter(|character| character.is_ascii_hexdigit())
+        .collect();
+    if cleaned.len() != 12 {
+        return Err("Nieprawidłowy adres MAC.".to_string());
+    }
+
+    let mut address = [0u8; 6];
+    for (index, byte) in address.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&cleaned[index * 2..index * 2 + 2], 16)
+            .map_err(|error| error.to_string())?;
+    }
+
+    // Six 0xFF bytes followed by the MAC repeated sixteen times.
+    let mut packet = Vec::with_capacity(102);
+    packet.extend_from_slice(&[0xFF; 6]);
+    for _ in 0..16 {
+        packet.extend_from_slice(&address);
+    }
+
+    let socket = UdpSocket::bind(("0.0.0.0", 0)).map_err(|error| error.to_string())?;
+    socket
+        .set_broadcast(true)
+        .map_err(|error| error.to_string())?;
+
+    let mut targets: Vec<String> = Vec::new();
+    if let Some(broadcast) = broadcast {
+        if !broadcast.trim().is_empty() {
+            targets.push(format!("{}:{}", broadcast.trim(), port));
+        }
+    }
+    targets.push(format!("255.255.255.255:{port}"));
+
+    let mut sent = false;
+    for target in targets {
+        if socket.send_to(&packet, &target).is_ok() {
+            sent = true;
+        }
+    }
+
+    if sent {
+        Ok(())
+    } else {
+        Err("Nie udało się wysłać pakietu wybudzającego.".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![discover_computers]);
+        .invoke_handler(tauri::generate_handler![discover_computers, send_wol]);
 
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());

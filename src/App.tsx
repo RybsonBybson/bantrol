@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { LayoutDashboard, Settings2, X } from "lucide-react";
+import { LayoutDashboard, Settings2, Smartphone, X } from "lucide-react";
 
 import { Brand } from "@/components/brand";
 import { Sidebar, type View } from "@/components/sidebar";
@@ -8,22 +8,33 @@ import { StartupScreen } from "@/components/startup-screen";
 import { Titlebar } from "@/components/titlebar";
 import { Button } from "@/components/ui/button";
 import { Dashboard } from "@/views/dashboard";
+import { PhonesView } from "@/views/phones";
 import { SettingsView } from "@/views/settings";
 import { useResolvedTheme } from "@/hooks/use-theme";
 import { useUpdater } from "@/hooks/use-updater";
 import {
   clearSavedDevices,
   forgetDevice as forgetDeviceApi,
+  getAppVersion,
   getSettings,
   getStatus,
   isTauri,
+  openPhoneWindow,
+  refreshWol,
   regeneratePairingCode,
   saveSettings,
   startServer,
   stopServer,
+  type SavedDevice,
   type ServerStatus,
   type Settings,
 } from "@/lib/tauri";
+
+const TITLES: Record<View, string> = {
+  dashboard: "Pulpit",
+  phones: "Telefony",
+  settings: "Ustawienia",
+};
 
 export default function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -32,6 +43,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [version, setVersion] = useState("");
   const settingsRef = useRef<Settings | null>(null);
   const updater = useUpdater();
 
@@ -48,14 +60,16 @@ export default function App() {
     let alive = true;
     (async () => {
       try {
-        const [loadedSettings, loadedStatus] = await Promise.all([
+        const [loadedSettings, loadedStatus, appVersion] = await Promise.all([
           getSettings(),
           getStatus(),
+          getAppVersion(),
         ]);
         if (!alive) return;
         settingsRef.current = loadedSettings;
         setSettings(loadedSettings);
         setStatus(loadedStatus);
+        setVersion(appVersion);
       } catch {
         if (alive) setError("Nie udało się wczytać danych.");
       } finally {
@@ -142,6 +156,21 @@ export default function App() {
     }
   }
 
+  async function recheckWol() {
+    try {
+      setStatus(await refreshWol());
+    } catch {
+      setError("Nie udało się sprawdzić Wake-on-LAN.");
+    }
+  }
+
+  function openPhone(device: SavedDevice) {
+    if (!isTauri()) return;
+    void openPhoneWindow(device.id).catch(() =>
+      setError("Nie udało się otworzyć okna telefonu."),
+    );
+  }
+
   const updateInProgress =
     updater.phase === "checking" ||
     updater.phase === "downloading" ||
@@ -159,7 +188,7 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <Titlebar running={status?.running ?? false} />
+      <Titlebar running={status?.running ?? false} version={version} />
 
       <div className="flex min-h-0 flex-1 gap-4 px-4 pb-4">
         <Sidebar
@@ -167,6 +196,7 @@ export default function App() {
           onNavigate={setView}
           theme={settings.theme}
           onThemeChange={(theme) => updateSettings({ theme })}
+          version={version}
         />
 
         <main className="flex min-w-0 flex-1 flex-col">
@@ -176,7 +206,7 @@ export default function App() {
                 <Brand compact />
               </div>
               <h1 className="text-3xl font-bold tracking-tight">
-                {view === "dashboard" ? "Pulpit" : "Ustawienia"}
+                {TITLES[view]}
               </h1>
             </div>
 
@@ -188,6 +218,14 @@ export default function App() {
                 onClick={() => setView("dashboard")}
               >
                 <LayoutDashboard className="size-4" />
+              </Button>
+              <Button
+                variant={view === "phones" ? "default" : "ghost"}
+                size="iconSm"
+                aria-label="Telefony"
+                onClick={() => setView("phones")}
+              >
+                <Smartphone className="size-4" />
               </Button>
               <Button
                 variant={view === "settings" ? "default" : "ghost"}
@@ -230,20 +268,35 @@ export default function App() {
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.22, ease: "easeOut" }}
               >
-                {view === "dashboard" ? (
+                {view === "dashboard" && (
                   <Dashboard
-                    settings={settings}
                     status={status}
                     busy={busy}
                     onToggleServer={toggleServer}
                     onRegenerate={regenerate}
-                    onForget={forgetDevice}
-                    onClearDevices={clearDevices}
                   />
-                ) : (
+                )}
+                {view === "phones" && (
+                  <PhonesView
+                    status={status}
+                    onOpen={openPhone}
+                    onForget={forgetDevice}
+                    onClear={clearDevices}
+                  />
+                )}
+                {view === "settings" && (
                   <SettingsView
                     settings={settings}
                     onUpdate={updateSettings}
+                    wol={
+                      status?.wol ?? {
+                        supported: false,
+                        enabled: false,
+                        mac: null,
+                        broadcast: null,
+                      }
+                    }
+                    onRefreshWol={() => void recheckWol()}
                   />
                 )}
               </motion.div>

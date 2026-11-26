@@ -7,19 +7,15 @@ import {
   Loader2,
   Play,
   RefreshCw,
-  Smartphone,
   Square,
-  Trash2,
   WifiOff,
-  X,
 } from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { QRCodeSVG } from "qrcode.react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
-import type { ServerStatus, Settings } from "@/lib/tauri";
+import type { ServerStatus } from "@/lib/tauri";
 
 function codeGroups(code: string) {
   const clean = code.padEnd(6, "•").slice(0, 6);
@@ -36,28 +32,21 @@ const rise = {
 };
 
 export function Dashboard({
-  settings,
   status,
   busy,
   onToggleServer,
   onRegenerate,
-  onForget,
-  onClearDevices,
 }: {
-  settings: Settings;
   status: ServerStatus | null;
   busy: boolean;
   onToggleServer: () => void;
   onRegenerate: () => void;
-  onForget: (id: string) => void;
-  onClearDevices: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const pairingLink = status?.pairingLink ?? null;
   const running = status?.running ?? false;
   const groups = codeGroups(status?.pairingCode ?? "------");
-  const saved = status?.savedDevices ?? [];
 
   // Pairing secrets hide again on their own, so an unattended screen stays safe.
   useEffect(() => {
@@ -113,9 +102,7 @@ export function Dashboard({
                         <span
                           key={characterIndex}
                           className={`flex size-12 items-center justify-center rounded-2xl bg-background/15 text-2xl font-bold tabular-nums transition-[filter] duration-300 sm:size-14 sm:text-3xl ${
-                            revealed
-                              ? ""
-                              : "select-none blur-[7px]"
+                            revealed ? "" : "select-none blur-[7px]"
                           }`}
                         >
                           {character}
@@ -169,17 +156,6 @@ export function Dashboard({
                     <span className="text-xs font-semibold">Wyłączone</span>
                   </div>
                 )}
-                {pairingLink && !revealed && (
-                  <button
-                    type="button"
-                    onClick={() => setRevealed(true)}
-                    aria-label="Pokaż kod QR"
-                    className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 rounded-2xl bg-white/35 text-[#3D5A80] backdrop-blur-[1px]"
-                  >
-                    <Eye className="size-6" />
-                    <span className="text-[11px] font-bold">Pokaż</span>
-                  </button>
-                )}
               </div>
             </div>
           </Card>
@@ -207,78 +183,6 @@ export function Dashboard({
           </Card>
         </motion.div>
       </div>
-
-      <motion.div variants={rise} initial="hidden" animate="show" custom={2}>
-        <Card className="gap-4 p-6">
-          <div className="flex items-center justify-between gap-3">
-            <CardTitle>Telefony</CardTitle>
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary">{saved.length}</Badge>
-              {saved.length > 1 && (
-                <button
-                  type="button"
-                  onClick={onClearDevices}
-                  className="text-[11px] font-semibold text-muted-foreground underline-offset-4 hover:underline"
-                >
-                  Wyczyść
-                </button>
-              )}
-            </div>
-          </div>
-
-          {saved.length ? (
-            <div className="flex flex-col gap-2">
-              <AnimatePresence initial={false}>
-                {saved.map((device) => (
-                  <motion.div
-                    key={device.id}
-                    layout
-                    initial={{ opacity: 0, y: -6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, x: -12 }}
-                    className="flex items-center gap-3 rounded-2xl bg-secondary/15 px-3 py-2.5"
-                  >
-                    <span className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-                      <Smartphone className="size-4" />
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-                      {device.name}
-                    </span>
-                    <span
-                      className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-                        device.connected
-                          ? "bg-accent/15 text-accent"
-                          : "text-muted-foreground"
-                      }`}
-                    >
-                      {device.connected && (
-                        <span className="size-1.5 rounded-full bg-accent" />
-                      )}
-                      {device.connected ? "Online" : "Zapisany"}
-                    </span>
-                    <button
-                      type="button"
-                      aria-label={`Zapomnij ${device.name}`}
-                      title="Zapomnij"
-                      onClick={() => onForget(device.id)}
-                      className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-accent/15 hover:text-accent"
-                    >
-                      <X className="size-4" />
-                    </button>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-            </div>
-          ) : (
-            <div className="flex items-center gap-3 rounded-2xl bg-secondary/15 p-4 text-sm text-muted-foreground">
-              <Trash2 className="size-4 shrink-0" />
-              {settings.rememberDevices
-                ? "Brak zapisanych telefonów."
-                : "Zapamiętywanie wyłączone."}
-            </div>
-          )}
-        </Card>
-      </motion.div>
     </div>
   );
 }

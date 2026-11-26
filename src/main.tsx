@@ -1,6 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import App from "./App";
+import { PhoneControlView } from "@/views/phone-control";
+import { isTauri } from "@/lib/tauri";
 import "./index.css";
 
 // Bantrol is a plain app window, never a browser: no inspection menu and no
@@ -20,8 +23,27 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+/**
+ * Every window loads the same bundle. The label decides whether we render the
+ * dashboard or a phone-control window, so a control window survives reloads.
+ */
+function Root() {
+  let label: string | undefined;
+  if (isTauri()) {
+    try {
+      label = getCurrentWindow().label;
+    } catch {
+      label = undefined;
+    }
+  }
+  if (label && label.startsWith("phone-")) {
+    return <PhoneControlView label={label} />;
+  }
+  return <App />;
+}
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    <Root />
   </React.StrictMode>,
 );
