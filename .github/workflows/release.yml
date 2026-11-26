@@ -175,6 +175,20 @@ jobs:
         working-directory: mobile
         run: npm run tauri android init
 
+      # Gradle signs debug APKs with ~/.android/debug.keystore and generates a
+      # fresh random one on every runner. A new key means Android refuses the
+      # self-update with INSTALL_FAILED_UPDATE_INCOMPATIBLE, so use one stable
+      # keystore for every build.
+      - name: Use stable debug keystore
+        run: |
+          mkdir -p "$HOME/.android"
+          cp mobile/android/bantrol-debug.keystore "$HOME/.android/debug.keystore"
+          # Older AGP setups read the debug key from ANDROID_SDK_HOME instead.
+          if [ -n "$ANDROID_SDK_HOME" ] && [ "$ANDROID_SDK_HOME" != "$HOME" ]; then
+            mkdir -p "$ANDROID_SDK_HOME/.android"
+            cp mobile/android/bantrol-debug.keystore "$ANDROID_SDK_HOME/.android/debug.keystore"
+          fi
+
       # Make sure the launcher icon is the Bantrol logo, regardless of what the
       # generated project ships with.
       - name: Apply Bantrol launcher icon

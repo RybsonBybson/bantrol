@@ -7,6 +7,12 @@ export interface PairInfo {
   token?: string;
 }
 
+export interface DiscoveredComputer {
+  name: string;
+  host: string;
+  port: number;
+}
+
 const STORAGE_KEY = "bantrol.mobile.computer";
 const DEVICE_KEY = "bantrol.mobile.deviceId";
 
@@ -52,6 +58,17 @@ export function parsePairingLink(raw: string): PairInfo | null {
     return { host, port, code, name };
   } catch {
     return null;
+  }
+}
+
+/** Asks the local network for desktops running Bantrol. */
+export async function discoverComputers(): Promise<DiscoveredComputer[]> {
+  if (!isTauri()) return [];
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<DiscoveredComputer[]>("discover_computers");
+  } catch {
+    return [];
   }
 }
 

@@ -89,7 +89,9 @@ Dodaj w GitHubie dwa sekrety (Settings → Secrets and variables → Actions):
 - `TAURI_SIGNING_PRIVATE_KEY` — zawartość pliku `src-tauri/bantrol.key`,
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — hasło klucza (tu: `bantrol`).
 
-Aplikacja mobilna sprawdza najnowsze wydanie i prowadzi do aktualizacji przez mechanizm systemowy Androida.
+Aplikacja mobilna pobiera nowy APK do pamięci podręcznej i uruchamia systemowy instalator Androida. Każde wydanie jest podpisywane tym samym kluczem deweloperskim z `mobile/android/bantrol-debug.keystore` (kopiowanym w workflow do `~/.android/debug.keystore`), więc kolejne wersje instalują się na poprzednią.
+
+> Instalacje z wydań sprzed wprowadzenia stałego klucza były podpisane losowym kluczem CI. Taką aplikację trzeba jednorazowo odinstalować; późniejsze aktualizacje działają już bez odinstalowywania.
 
 ## Wydania i wersjonowanie
 

@@ -12,6 +12,7 @@ use axum::{
 use enigo::{Axis, Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
+use std::net::UdpSocket;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -87,8 +88,58 @@ pub async fn start(state: Arc<AppState>) -> Result<(), String> {
         }
     });
 
-    spawn_capture_loop(state, frame_tx);
+    spawn_capture_loop(state.clone(), frame_tx);
+    spawn_discovery(state);
     Ok(())
+}
+
+/// Answers the phone's local-network discovery ping, so a 6-digit code can be
+/// used even before the first QR scan. The pairing code itself is never sent.
+fn spawn_discovery(state: Arc<AppState>) {
+    if state.discovery_started.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    std::thread::spawn(move || {
+        let socket = match UdpSocket::bind(("0.0.0.0", 47823)) {
+            Ok(socket) => socket,
+            Err(_) => {
+                state.discovery_started.store(false, Ordering::SeqCst);
+                return;
+            }
+        };
+        let _ = socket.set_read_timeout(Some(Duration::from_millis(700)));
+
+        loop {
+            let mut buffer = [0u8; 64];
+            match socket.recv_from(&mut buffer) {
+                Ok((length, address)) => {
+                    if &buffer[..length] != b"BANTROL_DISCOVER" {
+                        continue;
+                    }
+                    if !state.running.load(Ordering::SeqCst) {
+                        continue;
+                    }
+                    let port = *state.port.read().unwrap_or_else(|error| error.into_inner());
+                    let reply = json!({
+                        "app": "bantrol",
+                        "name": crate::settings::device_name(),
+                        "port": port,
+                    });
+                    let _ = socket.send_to(reply.to_string().as_bytes(), address);
+                }
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::WouldBlock
+                        || error.kind() == std::io::ErrorKind::TimedOut =>
+                {
+                    continue;
+                }
+                Err(_) => break,
+            }
+        }
+
+        state.discovery_started.store(false, Ordering::SeqCst);
+    });
 }
 
 /// Ask the server and the capture loop to stop.
@@ -317,6 +368,15 @@ fn run_pointer(
     match action {
         "move" => {}
         "click" => {
+            engine
+                .button(mouse_button(button), Direction::Click)
+                .map_err(|error| error.to_string())?;
+        }
+        "double" => {
+            engine
+                .button(mouse_button(button), Direction::Click)
+                .map_err(|error| error.to_string())?;
+            std::thread::sleep(Duration::from_millis(45));
             engine
                 .button(mouse_button(button), Direction::Click)
                 .map_err(|error| error.to_string())?;

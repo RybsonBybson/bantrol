@@ -69,9 +69,46 @@ export async function openInBrowser(url: string) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+async function readBody(
+  response: Response,
+  onProgress: (percent: number) => void,
+): Promise<Uint8Array> {
+  const total = Number(response.headers.get("content-length") ?? 0);
+  const reader = response.body?.getReader?.();
+
+  if (!reader) {
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      chunks.push(value);
+      received += value.byteLength;
+      if (total > 0) {
+        onProgress(Math.min(99, Math.round((received / total) * 100)));
+      }
+    }
+  }
+
+  const size = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 /**
- * Downloads the new APK and hands it to the system package installer. If
- * anything fails it falls back to downloading through the browser.
+ * Downloads the new APK into the app cache and launches the system installer.
+ * The installer is allowed to replace the current app only when both builds
+ * use the same signing key, which the release workflow guarantees by shipping
+ * a stable debug keystore.
  */
 export async function downloadAndInstall(
   update: MobileUpdate,
@@ -86,49 +123,37 @@ export async function downloadAndInstall(
     const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
     const { writeFile, BaseDirectory } = await import("@tauri-apps/plugin-fs");
     const { appCacheDir, join } = await import("@tauri-apps/api/path");
-    const { openPath } = await import("@tauri-apps/plugin-opener");
+    const { invoke } = await import("@tauri-apps/api/core");
 
-    const response = await tauriFetch(update.url);
+    const response = await tauriFetch(update.url, {
+      headers: { Accept: "application/octet-stream" },
+    });
     if (!response.ok) throw new Error("download-failed");
 
-    const total = Number(response.headers.get("content-length") ?? 0);
-    const reader = response.body?.getReader?.();
-    let bytes: Uint8Array;
-
-    if (reader) {
-      const chunks: Uint8Array[] = [];
-      let received = 0;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) {
-          chunks.push(value);
-          received += value.byteLength;
-          if (total > 0) {
-            onProgress(Math.min(99, Math.round((received / total) * 100)));
-          }
-        }
-      }
-      const size = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
-      bytes = new Uint8Array(size);
-      let offset = 0;
-      for (const chunk of chunks) {
-        bytes.set(chunk, offset);
-        offset += chunk.byteLength;
-      }
-    } else {
-      bytes = new Uint8Array(await response.arrayBuffer());
-    }
-
+    const bytes = await readBody(response, onProgress);
     onProgress(100);
 
     const fileName = `bantrol-${update.version}.apk`;
     await writeFile(fileName, bytes, { baseDir: BaseDirectory.AppCache });
+    const filePath = await join(await appCacheDir(), fileName);
 
-    const dir = await appCacheDir();
-    const filePath = await join(dir, fileName);
-    await openPath(filePath);
-  } catch {
-    await openInBrowser(update.url);
+    let allowed = true;
+    try {
+      allowed = await invoke<boolean>("plugin:android-installer|can_install");
+    } catch {
+      // The plugin is missing (old build); try the installer anyway.
+    }
+
+    if (!allowed) {
+      await invoke("plugin:android-installer|request_install_permission");
+      allowed = await invoke<boolean>("plugin:android-installer|can_install");
+      if (!allowed) throw new Error("install-permission");
+    }
+
+    await invoke("plugin:android-installer|install", { path: filePath });
+  } catch (error) {
+    // Last resort: let the browser download and install the APK.
+    await openInBrowser(update.pageUrl);
+    throw error;
   }
 }

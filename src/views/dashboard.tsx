@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Check,
   Copy,
+  Eye,
+  EyeOff,
   Loader2,
   Play,
   RefreshCw,
@@ -51,10 +53,18 @@ export function Dashboard({
   onClearDevices: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [revealed, setRevealed] = useState(false);
   const pairingLink = status?.pairingLink ?? null;
   const running = status?.running ?? false;
   const groups = codeGroups(status?.pairingCode ?? "------");
   const saved = status?.savedDevices ?? [];
+
+  // Pairing secrets hide again on their own, so an unattended screen stays safe.
+  useEffect(() => {
+    if (!revealed) return;
+    const timer = window.setTimeout(() => setRevealed(false), 20_000);
+    return () => window.clearTimeout(timer);
+  }, [revealed]);
 
   async function copyCode() {
     if (!status?.pairingCode) return;
@@ -76,9 +86,25 @@ export function Dashboard({
 
             <div className="relative flex flex-col items-center gap-6 p-7 sm:flex-row sm:justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] opacity-75">
-                  Kod parowania
-                </p>
+                <div className="flex items-center justify-between gap-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] opacity-75">
+                    Kod parowania
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setRevealed((value) => !value)}
+                    aria-label={revealed ? "Ukryj kod" : "Pokaż kod"}
+                    title={revealed ? "Ukryj" : "Pokaż"}
+                    className="flex items-center gap-1.5 rounded-full bg-background/15 px-3 py-1.5 text-[11px] font-semibold transition-colors hover:bg-background/25"
+                  >
+                    {revealed ? (
+                      <EyeOff className="size-3.5" />
+                    ) : (
+                      <Eye className="size-3.5" />
+                    )}
+                    {revealed ? "Ukryj" : "Pokaż"}
+                  </button>
+                </div>
 
                 <div className="mt-4 flex items-center gap-2">
                   {groups.map((group, index) => (
@@ -86,7 +112,11 @@ export function Dashboard({
                       {group.split("").map((character, characterIndex) => (
                         <span
                           key={characterIndex}
-                          className="flex size-12 items-center justify-center rounded-2xl bg-background/15 text-2xl font-bold tabular-nums sm:size-14 sm:text-3xl"
+                          className={`flex size-12 items-center justify-center rounded-2xl bg-background/15 text-2xl font-bold tabular-nums transition-[filter] duration-300 sm:size-14 sm:text-3xl ${
+                            revealed
+                              ? ""
+                              : "select-none blur-[7px]"
+                          }`}
                         >
                           {character}
                         </span>
@@ -120,7 +150,7 @@ export function Dashboard({
               </div>
 
               {/* Plain white box, no clipping: every QR module stays scannable. */}
-              <div className="shrink-0 rounded-2xl bg-white p-2.5">
+              <div className="relative shrink-0 rounded-2xl bg-white p-2.5">
                 {pairingLink ? (
                   <QRCodeSVG
                     value={pairingLink}
@@ -129,12 +159,26 @@ export function Dashboard({
                     fgColor="#181D26"
                     level="M"
                     marginSize={2}
+                    className={`transition-[filter] duration-300 ${
+                      revealed ? "" : "blur-[7px]"
+                    }`}
                   />
                 ) : (
                   <div className="flex size-[152px] flex-col items-center justify-center gap-2 text-center text-muted-foreground">
                     <WifiOff className="size-7" />
                     <span className="text-xs font-semibold">Wyłączone</span>
                   </div>
+                )}
+                {pairingLink && !revealed && (
+                  <button
+                    type="button"
+                    onClick={() => setRevealed(true)}
+                    aria-label="Pokaż kod QR"
+                    className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 rounded-2xl bg-white/35 text-[#3D5A80] backdrop-blur-[1px]"
+                  >
+                    <Eye className="size-6" />
+                    <span className="text-[11px] font-bold">Pokaż</span>
+                  </button>
                 )}
               </div>
             </div>

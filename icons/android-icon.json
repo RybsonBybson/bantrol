@@ -1,0 +1,7 @@
+{
+  "default": "bantrol-icon-padded.png",
+  "bg_color": "#EE6C4D",
+  "android_bg": "bantrol-icon-background.png",
+  "android_fg": "bantrol-icon-foreground.png",
+  "android_fg_scale": 100
+}

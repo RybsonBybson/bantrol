@@ -2307,6 +2307,48 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Allows installing APKs and managing the install-unknown-apps permission.\n#### This default permission set includes:\n\n- `allow-install`\n- `allow-can-install`\n- `allow-request-install-permission`",
+          "type": "string",
+          "const": "android-installer:default",
+          "markdownDescription": "Allows installing APKs and managing the install-unknown-apps permission.\n#### This default permission set includes:\n\n- `allow-install`\n- `allow-can-install`\n- `allow-request-install-permission`"
+        },
+        {
+          "description": "Enables the can_install command without any pre-configured scope.",
+          "type": "string",
+          "const": "android-installer:allow-can-install",
+          "markdownDescription": "Enables the can_install command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the install command without any pre-configured scope.",
+          "type": "string",
+          "const": "android-installer:allow-install",
+          "markdownDescription": "Enables the install command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the request_install_permission command without any pre-configured scope.",
+          "type": "string",
+          "const": "android-installer:allow-request-install-permission",
+          "markdownDescription": "Enables the request_install_permission command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the can_install command without any pre-configured scope.",
+          "type": "string",
+          "const": "android-installer:deny-can-install",
+          "markdownDescription": "Denies the can_install command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the install command without any pre-configured scope.",
+          "type": "string",
+          "const": "android-installer:deny-install",
+          "markdownDescription": "Denies the install command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the request_install_permission command without any pre-configured scope.",
+          "type": "string",
+          "const": "android-installer:deny-request-install-permission",
+          "markdownDescription": "Denies the request_install_permission command without any pre-configured scope."
+        },
+        {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",
           "type": "string",
           "const": "core:default",
